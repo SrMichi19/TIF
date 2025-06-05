@@ -1,3 +1,5 @@
+import numpy as np
+
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
@@ -134,3 +136,6 @@ class Anotaciones:
         """Carga las anotaciones desde un archivo .csv
             Args:"""
         pass
+
+
+    
