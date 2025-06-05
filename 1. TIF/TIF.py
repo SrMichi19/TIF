@@ -1,3 +1,4 @@
+print("Flor")
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
