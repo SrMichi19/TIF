@@ -1,0 +1,81 @@
+class Info:
+    """ Clase para almacenar información acerca del registro de datos"""
+
+    def __init__(self, experimenter:str, subject_info:dict, ch_names:list | str, ch_types:list | str, bads:list | str, description:str, fm:float = 512):
+        """
+            Genera un objeto Info()
+            Args:
+                experimenter : Nombre del experimentador.
+                subject_info : Información adicional del sujeto.
+                ch_names : Lista con los nombres de los canales.
+                ch_types : Tipo de cada canal ('emg', 'eeg', 'ecg') o un único tipo para todos.
+                bads : Lista de canales marcados como "malos ".
+                fm : Frecuencia de muestreo en Hz (por defecto 512).
+                description : Descripción del registro de datos."""
+        
+        if len(ch_names) != len(ch_types):
+            raise ValueError ("La cantidad de canales y los tipos de canales deben tener la misma longuitud")
+        
+        self.data = {"Experimentador": experimenter,
+                     "Sujeto":subject_info,
+                     "Numero canales": ch_names,
+                     "Tipo canales": ch_types,
+                     "Canales malos": bads,
+                     "Descripción": description,
+                     "Frecuencia muestreo": fm}        
+
+    def __contains__(self, clave):
+        """ Permite verificar si una clave esta presente en el objeto
+            Args:
+                clave : Nombre de la clave que se quiere verificar
+            Returns:
+                True: La clave se encuentra en el objeto
+                False: La clave no se encuentra en el objeto"""
+        
+        if clave in self.data:
+            return True
+        else:
+            return False
+        
+    def __getitem__(self, clave):
+        """ Permite acceder a elementos como un diccionario
+            Args
+                clave: Nombre de la clave a la que se quiere acceder
+            Returns
+                Devuelve el valor asociado a la clave ingrsada, o
+                False: Cuando la clave ingresada no existe """
+        
+        if self.__contains__(clave) == True:
+            return self.data[clave]
+        else:
+            return False
+        
+    def __len__(self) -> int:
+        """ Devuelve la cantidad de elementos almacenados"""
+        return len(self.data)
+    
+    def get(self):
+        """ Obtiene el valor de una clave específica"""
+        pass
+
+    def keys(self):
+        """ Devuelve las claves del objeto"""
+        return [clave for clave in self.data]
+        
+    def item(self, elemento):
+        """ Devuelve los elementos como pares clave-valor
+            Args
+                elemento : Elemento del que se queire obtener la clave y su valor
+            Returns:
+                tuple : Tupla que contiene la clave y el valor del elemento
+                False : Si no exite la clave en el elemento en el diccionario"""
+        
+        valor = self.__getitem__(elemento)
+        if valor == False:
+            return False
+        else:
+            return (elemento, valor)
+        
+    def rename_channels(self):
+        """Permite renombrar canales de forma segura"""
+        pass
