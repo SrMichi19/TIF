@@ -18,7 +18,7 @@ class Info:
         
         self.data = {"Experimentador": experimenter,
                      "Sujeto":subject_info,
-                     "Numero canales": ch_names,
+                     "Nombre canales": ch_names,
                      "Tipo canales": ch_types,
                      "Canales malos": bads,
                      "Descripción": description,
@@ -76,6 +76,61 @@ class Info:
         else:
             return (elemento, valor)
         
-    def rename_channels(self):
-        """Permite renombrar canales de forma segura"""
+    def _check_channel(self, channel_name):
+        """ Verifica si un canal se encuentra entre los nomnre de los canales
+            Args:
+                channel_name : Canal a verificar si se encuentra en la lista de canales"""
+        
+        if channel_name in self.data["Nombre canales"]:
+            return True
+        else:
+            return False
+        
+    def rename_channels(self, nombre_canal, nuevo_nombre):
+        """Permite renombrar canales de forma segura
+            Args:
+                nombre_canal : Nombre del canal que se quiere cambiar
+                nuevo_nombre : Nuevo nombre que va a tener el canal
+            Returs:
+                True : Si se cambio el nombre del canal correctamente
+                False: Si no se pudo modificar el nombre del canal"""
+        
+        if self._check_channel(nombre_canal) == True:
+            indice = self.data["Nombre canales"].index(nombre_canal)
+            self.data["Nombre canales"][indice] = nuevo_nombre
+            return True
+        else:
+            return False     
+
+
+class Anotaciones:
+    """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
+        Permitir la adición, eliminación y modificación de eventos."""
+    
+    def __init__(self):
+        """Inicializa la clase con los datos de las anotaciones"""
+        pass
+    def add(self):
+        """Agrega una nueva anotación
+            Args:"""
+        pass
+    def remove(self):
+        """Elimina una anotación específica
+            Args:"""
+        pass
+    def get_annotations(self):
+        """Devuelve una DataFrame con todas las anotaciones
+            Args:"""
+        pass
+    def find(self):
+        """Busca y devuelve las anotaciones que coincidan con una descripción específica
+            Args:"""
+        pass
+    def save(self):
+        """Guarda las anotaciones en un archivo .csv
+            Args:"""
+        pass
+    def load(self):
+        """Carga las anotaciones desde un archivo .csv
+            Args:"""
         pass
