@@ -1,5 +1,3 @@
-import numpy as np
-
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
