@@ -1,3 +1,6 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
@@ -108,7 +111,7 @@ class Info:
             self.data["Nombre canales"][indice] = nuevo_nombre
             return True
         else:
-            return False          
+            return False           
 
 class Anotaciones:
     """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
@@ -135,25 +138,50 @@ class Anotaciones:
                 anotacion : Nueva anotación a agregar (se espera la forma [inicio, duración, descripción])"""
         if len(anotacion) != 3:
             return False 
-        elif self.anotaciones["Descripcion"].isin([anotacion[2]]).any(): # Si la descripcion del evento se repite en la columna, no se agrega la anotacion
-            return False  
         else:
             self.anotaciones.loc[len(self.anotaciones)] = anotacion  # Agrega un fila
             return True 
     
-    def remove(self):
+    def remove(self, anotacion_eliminar):
         """Elimina una anotación específica
-            Args:"""
-        pass
-    def find(self):
-        """Busca y devuelve las anotaciones que coincidan con una descripción específica
-            Args:"""
-        pass
-    def save(self):
+            Args:
+                anotacion_eliminar : Anotación que se quiere eliminar
+            Returns:
+                True : Selimino correctamente la anotación
+                False : No se pudo eliminar la anotación """
+        
+        if len(anotacion_eliminar) != 3:
+            return False
+        else:
+            eliminar = (self.anotaciones["Inicio (s)"] == anotacion_eliminar[0]) & (self.anotaciones["Duración (s)"] == anotacion_eliminar[1]) & (self.anotaciones["Descripcion"] == anotacion_eliminar[2])
+            indice = self.anotaciones[eliminar].index
+            self.anotaciones = self.anotaciones.drop(indice)
+            return True
+
+    def find(self, buscar_anotacion):
+        """Busca y devuelve una anotación específica
+            Args:
+                buscar_anotacion : Anotación que se quiere buscar entre los datos 
+            Returs:
+                Devuelve la anotación o False si la longuitud de la anotación no coincide con la estructura de los datos"""
+        
+        if len(buscar_anotacion) != 3:
+            return False
+        else:
+            buscar = (self.anotaciones["Inicio (s)"] == buscar_anotacion[0]) & (self.anotaciones["Duración (s)"] == buscar_anotacion[1]) & (self.anotaciones["Descripcion"] == buscar_anotacion[2])
+            return self.anotaciones[buscar]
+
+    def save(self, nombre):
         """Guarda las anotaciones en un archivo .csv
-            Args:"""
-        pass
-    def load(self):
+            Args:
+                nombre : Nombre con el que se guardara el archivo"""
+        return self.anotaciones.to_csv(f"{nombre}.csv")
+    
+    def load(self, archivo):
         """Carga las anotaciones desde un archivo .csv
-            Args:"""
-        pass
+            Args:
+                archivo : Nombre del archivo que se quiere cargar
+            Devuelve el dataframe con los datos del archivo csv"""
+        
+        anotacion = pd.read_csv(archivo)
+        return anotacion
