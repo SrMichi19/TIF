@@ -1,4 +1,3 @@
-print("Flor")
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
@@ -55,21 +54,29 @@ class Info:
         """ Devuelve la cantidad de elementos almacenados"""
         return len(self.data)
     
-    def get(self):
-        """ Obtiene el valor de una clave específica"""
-        pass
-
     def keys(self):
         """ Devuelve las claves del objeto"""
         return [clave for clave in self.data]
+    
+    def get(self, clave):
+        """ Obtiene solo el valor de una clave específica
+            Args:
+                clave : Clave de la cual se quiere conocer su valor
+            Returns:
+                Devuleve el valor de la clave si la misma existe, o false en caso de que no exista"""
         
+        if self.__contains__(clave) == True:
+            return self.data[clave]
+        else:
+            return False
+
     def item(self, elemento):
-        """ Devuelve los elementos como pares clave-valor
+        """ Devuelve los elementos como pares clave-valor de una clave en específica
             Args
-                elemento : Elemento del que se queire obtener la clave y su valor
+                elemento : Elemento del que se quiere obtener la clave y su valor
             Returns:
                 tuple : Tupla que contiene la clave y el valor del elemento
-                False : Si no exite la clave en el elemento en el diccionario"""
+                False : Si no exite la clave en el diccionario"""
         
         valor = self.__getitem__(elemento)
         if valor == False:
@@ -78,7 +85,7 @@ class Info:
             return (elemento, valor)
         
     def _check_channel(self, channel_name):
-        """ Verifica si un canal se encuentra entre los nomnre de los canales
+        """ Verifica si un canal se encuentra entre los nombres de los canales
             Args:
                 channel_name : Canal a verificar si se encuentra en la lista de canales"""
         
@@ -101,7 +108,7 @@ class Info:
             self.data["Nombre canales"][indice] = nuevo_nombre
             return True
         else:
-            return False     
+            return False          
 
 
 class Anotaciones:
