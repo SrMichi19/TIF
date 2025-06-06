@@ -110,24 +110,39 @@ class Info:
         else:
             return False          
 
-
 class Anotaciones:
     """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
-        Permitir la adición, eliminación y modificación de eventos."""
+        Permite la adición, eliminación y modificación de eventos."""
     
-    def __init__(self):
+    def __init__(self, onset:np.ndarray, duration:np.ndarray, description):
         """Inicializa la clase con los datos de las anotaciones"""
-        pass
-    def add(self):
+        self.onset = onset
+        self.duration = duration
+        self.description = description
+
+        if len(onset) != len(duration):
+            raise ValueError ("Onset y duration deben tener la misma cantidad de elementos")
+        
+        self.anotaciones = pd.DataFrame({"Inicio (s)": self.onset, "Duración (s)": self.duration, "Descripcion": self.description})
+
+    def get_annotations(self):
+        """Devuelve una DataFrame con todas las anotaciones que recibe el constructor"""
+        return self.anotaciones
+    
+    def add(self, anotacion:list|tuple):
         """Agrega una nueva anotación
-            Args:"""
-        pass
+            Args:
+                anotacion : Nueva anotación a agregar (se espera la forma [inicio, duración, descripción])"""
+        if len(anotacion) != 3:
+            return False 
+        elif self.anotaciones["Descripcion"].isin([anotacion[2]]).any(): # Si la descripcion del evento se repite en la columna, no se agrega la anotacion
+            return False  
+        else:
+            self.anotaciones.loc[len(self.anotaciones)] = anotacion  # Agrega un fila
+            return True 
+    
     def remove(self):
         """Elimina una anotación específica
-            Args:"""
-        pass
-    def get_annotations(self):
-        """Devuelve una DataFrame con todas las anotaciones
             Args:"""
         pass
     def find(self):
