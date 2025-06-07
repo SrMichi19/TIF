@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
 
@@ -185,3 +186,104 @@ class Anotaciones:
         
         anotacion = pd.read_csv(archivo)
         return anotacion
+    
+class RawSignal:
+    """
+    Clase para manejar señales fisiológicas en formato NumPy.
+    Este constructor permite inicializar el objeto 'RawSignal' a partir de un array de datos ,
+    con información adicional de los canales y el índice de la primera muestra."""
+    
+    def __init__(self, data:np.ndarray, sfreq:float, info:Info=None, anotaciones:Anotaciones=None, first_samp:int=0):
+        """
+        Inicializa una instancia de la clase RawSignal.
+        
+        Args:
+            data : Matriz de datos con forma '(n_canales , n_muestras)'.
+            sfreq : Frecuencia de muestreo de la señal en Hz.
+            info : Por defecto es None. Información adicional sobre la señal. El diccionario contiene info relevante de la señal
+            anotaciones : Objeto de tipo Anotaciones que almacena eventos asociados a la señal y al experimento.
+            first_samp : Índice del primer muestreo a utilizar (default es 0).
+            
+        Raises:
+            ValueError : Si el array 'data' no tiene la forma '(n_canales , n_muestras)'.
+            ValueError : Si el índice 'first_samp' está fuera del rango de la señal. """
+        
+        if not isinstance(data, np.ndarray):     # Que data sea un array de NumPy
+            raise ValueError("El parámetro 'data' debe ser un array de NumPy (np.ndarray).")
+
+        if data.ndim != 2:                       # Que data tenga dos dimensiones 
+            raise ValueError("El array 'data' debe tener dos dimensiones: (n_canales, n_muestras).")
+
+        n_muestras = data.shape[1]               # Número de muestras es la segunda dimensión
+        if not (0 <= first_samp < n_muestras):   # Que first_samp sea un entero positivo y menor que el numero de muestras
+            raise ValueError("El índice 'first_samp' está fuera del rango de muestras disponibles.")
+
+        self.data = data
+        self.sfreq = sfreq
+        self.info = info
+        self.anotaciones = anotaciones
+        self.first_samp = first_samp
+        
+    def get_data(self, picks=None, start:float|int=0, stop:float|int=0, reject:float=None, times:bool=False):
+        """
+        Obtiene muestras de la señal en un rango dado.
+        Args:
+            picks (str o array_like) : Canales o índices a extraer. Si es 'None', se seleccionan todos los canales.
+            start : Tiempo inicial (en segundos) para extraer muestras (por defecto 0).
+            stop : Tiempo final (en segundos) para extraer muestras (por defecto 0, que significa hasta el final de la señal).
+            reject : Valor pico a pico de umbral para rechazar canales. Si una muestra supera este umbral, el canal se descarta (por defecto 'None').
+            times : Si es 'True', se retorna también el vector de tiempos asociado a las muestras.
+
+        Returns:
+            np.ndarray : Matriz con los datos seleccionados (n_canales x n_muestras).
+            np.ndarray (opcional) : Vector de tiempos (solo si 'times=True').
+
+        Raises
+            ValueError : Si los índices seleccionados están fuera de rango. """
+        
+        n_canales, n_muestras = self.data.shape                       # Número de canales y muestras  
+    
+        start_idx = int(start * self.sfreq)                           # Convertir start de segundos a número de muestra
+        stop_idx = int(stop * self.sfreq) if stop > 0 else n_muestras # Si stop es mayor que 0, convertir a indice de muestra, sino, tomar hasta el final
+
+        if not (0 <= start_idx < stop_idx <= n_muestras):             # Si no se cumple que start_idx es mayor o igual a 0 y menor que stop_idx y ademas stop_idx es menor o igual al numero de muestras, lleva al error
+            raise ValueError("Índices de tiempo fuera de rango.")
+
+        # Seleccionar canales
+        if picks is None:                             # Si picks queda por defecto, seleccionar todos los canales
+            canales_idx = np.arange(n_canales)
+
+        elif isinstance(picks, (list, np.ndarray)):
+            if all(isinstance(pick, int) for pick in picks):   # Verificar que los canales ingresados sean todos enteros
+                if np.isin(picks, np.arange(n_canales)).all(): # Verificar si los canales ingresados existen
+                    canales_idx = np.array(picks)
+                else:
+                    raise ValueError("Error: algunos canales ingresados no existen")
+            
+            elif all(isinstance(pick, str) for pick in picks):   # Verificar que los canales ingresados sean todos strings
+                if self.info is None:
+                    raise ValueError("Debe ingresar el objeto Info")
+                
+                nombres = self.info.get("Nombre canales")       # Aplicamos el médoto de Info para obtener los canales del diccionario
+                try:
+                    canales_idx = [nombres.index(canal) for canal in picks] # Si "canal" esta en los canels pasados desde Info, obtiene el indice y se agrega a canales_idx
+                except ValueError:
+                    raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
+            else:
+                raise ValueError("Error: los canales ingresados no tienen el mismo formato")
+
+        else:
+            raise ValueError("Formato de 'picks' inválido. Deben ser strings o enteros.")
+
+        datos = self.data[np.array(canales_idx), start_idx : stop_idx]  # Extraer datos de los canales
+
+        if reject is not None:                 # Aplicar umbral de rechazo si se especifica
+            pico_pico = np.ptp(datos, axis=1)  # Toma el max y min del canal y los resta, obteniendo el valor pico_pico de cada canal (axis=1 filas)
+            filtro = pico_pico < reject        # Filtro para quedarme solo con los valores pico_pico menores a reject
+            datos = datos[filtro]
+
+        if times is True:
+            tiempo_vector = np.arange(start_idx, stop_idx) / self.sfreq # t = muestra/fm
+            return datos, tiempo_vector
+
+        return datos
