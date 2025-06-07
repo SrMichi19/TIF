@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import copy
 
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
@@ -112,7 +113,28 @@ class Info:
             self.data["Nombre canales"][indice] = nuevo_nombre
             return True
         else:
-            return False           
+            return False  
+    
+    def eliminar_elementos(self, key:str, elementos:str|list):
+        """
+        Elimina uno o varios elementos de la lista asociada a una clave específica.
+
+        Args:
+            clave : Clave del diccionario donde se eliminarán los elementos.
+            elementos : Elemento o lista de elementos a eliminar.
+
+        Raises:
+            KeyError: Si la clave no existe en el diccionario.
+            ValueError: Si uno o más elementos a eliminar no están presentes en la lista."""
+        
+        if self.__contains__(key) == False:
+            raise KeyError(f"La clave '{key}' no existe en Info.")
+        
+        
+        for elemento in elementos:
+            if elemento not in self.data[key]:
+                raise ValueError(f"El elemento '{elemento}' no se encuentra en la lista asociada a '{key}'.")
+            self.data[key].remove(elemento)         
 
 class Anotaciones:
     """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
@@ -287,3 +309,37 @@ class RawSignal:
             return datos, tiempo_vector
 
         return datos
+
+    def drop_channels(self, ch_names:list|np.ndarray) -> "RawSignal":
+        """ 
+        Elimina uno o más canales a partir de ch_names
+        Args:
+            ch_names : Nombres de canales a eliminar
+        Returns:
+            Objeto RawSignal """
+
+        # Validaciones
+        if self.info is None or self.info.get("Nombre canales") is None:
+            raise ValueError("No se puede eliminar canales sin el objeto Info o los nombres de los canales")
+        
+        canales_actuales = self.info["Nombre canales"]
+        datos_actuales = self.data
+        info_copia = copy.deepcopy(self.info)
+
+        if all(isinstance(ch, str) for ch in ch_names):    # Si todos los canales son str
+            try:
+                indices_eliminar = [canales_actuales.index(nombre) for nombre in ch_names]
+            except ValueError as e:
+                raise ValueError(f"Uno o más nombres de canal no se encuentran en la lista: {e}")
+            
+        elif all(isinstance(ch, int) for ch in ch_names):  # Si todos los canales son int
+            indices_eliminar = ch_names
+        
+        else:
+            raise ValueError("Todos los elementos de 'ch_names' deben ser del mismo tipo (str o int).")
+        
+        datos_filtrados = np.delete(datos_actuales, indices_eliminar, axis=0)   # Elimina los indices (canales) de la señal
+
+        info_copia.eliminar_elementos(key="Nombre canales", elementos=ch_names)
+
+        return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones)
