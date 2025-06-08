@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import copy
+import scipy.signal
 
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
@@ -19,7 +20,7 @@ class Info:
                 description : Descripción del registro de datos."""
         
         if len(ch_names) != len(ch_types):
-            raise ValueError ("La cantidad de canales y los tipos de canales deben tener la misma longuitud")
+            raise ValueError ("La cantidad de canales y los tipos de canales deben ser la misma")
         
         self.data = {"Experimentador": experimenter,
                      "Sujeto":subject_info,
@@ -140,16 +141,32 @@ class Anotaciones:
     """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
         Permite la adición, eliminación y modificación de eventos."""
     
-    def __init__(self, onset:np.ndarray, duration:np.ndarray, description):
-        """Inicializa la clase con los datos de las anotaciones"""
+    def __init__(self, onset:np.ndarray=None, duration:np.ndarray=None, description=None, file=None):
+        """
+        Inicializa la clase con los datos de las anotaciones de forma manual o mediante un archivo csv
+        
+        Args:
+            onset : Inicio del evento en segundos
+            duration : Duración del evento en segundos
+            description : Descripción del evento
+            
+            file : Nombre del archivo csv con las atonaciones
+                   Se espera una estructura de columnas [Inicio, Duracion, Descripcion] """
+        
         self.onset = onset
         self.duration = duration
         self.description = description
 
-        if len(onset) != len(duration):
-            raise ValueError ("Onset y duration deben tener la misma cantidad de elementos")
+        if file is not None:
+            self.anotaciones = self.load(archivo=file)
         
-        self.anotaciones = pd.DataFrame({"Inicio (s)": self.onset, "Duración (s)": self.duration, "Descripcion": self.description})
+        elif onset and duration and description:
+            if len(onset) != len(duration):
+                raise ValueError ("Onset y duration deben tener la misma cantidad de elementos")
+            self.anotaciones = pd.DataFrame({"Inicio": self.onset, "Duracion": self.duration, "Descripcion": self.description})
+        
+        else:
+            raise ValueError ("Debe ingresar las anotaciones manualmente o cargarlas a partir de un archivo")
 
     def get_annotations(self):
         """Devuelve una DataFrame con todas las anotaciones que recibe el constructor"""
@@ -158,7 +175,7 @@ class Anotaciones:
     def add(self, anotacion:list|tuple):
         """Agrega una nueva anotación
             Args:
-                anotacion : Nueva anotación a agregar (se espera la forma [inicio, duración, descripción])"""
+                anotacion : Nueva anotación a agregar (se espera la forma [Inicio, Duracion, Descripcion])"""
         if len(anotacion) != 3:
             return False 
         else:
@@ -176,7 +193,7 @@ class Anotaciones:
         if len(anotacion_eliminar) != 3:
             return False
         else:
-            eliminar = (self.anotaciones["Inicio (s)"] == anotacion_eliminar[0]) & (self.anotaciones["Duración (s)"] == anotacion_eliminar[1]) & (self.anotaciones["Descripcion"] == anotacion_eliminar[2])
+            eliminar = (self.anotaciones["Inicio"] == anotacion_eliminar[0]) & (self.anotaciones["Duracion"] == anotacion_eliminar[1]) & (self.anotaciones["Descripcion"] == anotacion_eliminar[2])
             indice = self.anotaciones[eliminar].index
             self.anotaciones = self.anotaciones.drop(indice)
             return True
@@ -191,7 +208,7 @@ class Anotaciones:
         if len(buscar_anotacion) != 3:
             return False
         else:
-            buscar = (self.anotaciones["Inicio (s)"] == buscar_anotacion[0]) & (self.anotaciones["Duración (s)"] == buscar_anotacion[1]) & (self.anotaciones["Descripcion"] == buscar_anotacion[2])
+            buscar = (self.anotaciones["Inicio"] == buscar_anotacion[0]) & (self.anotaciones["Duracion"] == buscar_anotacion[1]) & (self.anotaciones["Descripcion"] == buscar_anotacion[2])
             return self.anotaciones[buscar]
 
     def save(self, nombre):
@@ -288,7 +305,7 @@ class RawSignal:
                 
                 nombres = self.info.get("Nombre canales")       # Aplicamos el médoto de Info para obtener los canales del diccionario
                 try:
-                    canales_idx = [nombres.index(canal) for canal in picks] # Si "canal" esta en los canels pasados desde Info, obtiene el indice y se agrega a canales_idx
+                    canales_idx = [nombres.index(canal) for canal in picks] # Si "canal" esta en los canales pasados desde Info, obtiene el indice y se agrega a canales_idx
                 except ValueError:
                     raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
             else:
@@ -343,3 +360,182 @@ class RawSignal:
         info_copia.eliminar_elementos(key="Nombre canales", elementos=ch_names)
 
         return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones)
+
+    def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "RawSignal":
+        """
+        Obtiene un trozo de RawSignal. Limita los datos dentro de RawSignal
+        para obtener un nuevo objeto RawSignal pero con una cantidad de muestras recortadas.
+        El parámetro 'first_samp' se configura adecuadamente.
+        
+        Args:
+            tmin : Tiempo inicial en segundos para iniciar el recorte (por defecto es 0.0).
+            tmax : Tiempo final en segundos para finalizar el recorte (por defecto es None).
+        
+        Returns:
+            RawSignal : Nueva instancia de 'RawSignal' que contiene el segmento temporal recortado.
+        
+        Raises
+            Value Error : Si los tiempos 'tmin' o 'tmax' están fuera del rango de la señal. """
+        
+        n_canales, n_muestras = self.data.shape
+        duracion_total = n_muestras / self.sfreq
+
+        #Validaciones
+        if not isinstance(tmin, (int, float)) or tmin < 0:             # Si tmin no es entero, flotante o positivo
+            raise ValueError("'tmin' debe ser un número positivo.")
+        
+        if tmax is not None:
+            if not isinstance(tmax, (int, float)) or tmax <= tmin:     # Si tmax no es un número o es menor a tmin
+                raise ValueError("'tmax' debe ser mayor que 'tmin'.")
+            elif tmax > duracion_total:                                # Si tmax es mayor que la duracion total de la señal
+                raise ValueError(f"'tmax' está fuera del rango de la señal ({duracion_total:.2f} s).")
+
+        if tmin > duracion_total:                                      #Chequeo si tmin es mayor que la duracion total de la señal 
+            raise ValueError(f"'tmin' está fuera del rango de la señal ({duracion_total:.2f} s).")
+
+        start_idx = int(tmin * self.sfreq)                             # Convertir a índices
+        end_idx = int(tmax * self.sfreq) if tmax is not None else n_muestras
+
+        datos_crop = self.data[:, start_idx:end_idx]                   # Extraer el segmento de la señal
+
+        return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=self.anotaciones, first_samp=0) # El segmento recortado empieza en 0 (first_samp)
+    
+    def describe(self, archivo_salida):
+        """
+        Genera un DataFrame con estadísticas descriptivas para cada canal de la señal.
+
+        Para cada canal se obtiene:
+        - Nombre: Nombre del canal.
+        - Tipo: Tipo de canal (eeg, ecg, emg).
+        - Min: Valor mínimo del canal.
+        - Q1: Primer cuartil (percentil 25%).
+        - Mediana: Mediana (percentil 50%).
+        - Q3: Tercer cuartil (percentil 75%).
+        - Max: Valor máximo del canal.
+
+        Args:
+            archivo_salida : Nombre del archivo csv que se genera
+
+        Returns:
+            pd.DataFrame : Tabla con una fila por estadístico y una columna por canal. """
+        
+        n_canales = 0
+
+        if self.info is not None:
+            if "Nombre canales" in self.info:
+                nombres = self.info.get("Nombre canales")
+                n_canales = len(nombres)
+
+            if "Tipo canales" in self.info:
+                tipos = self.info.get("Tipo canales")
+        
+        if self.info is None: 
+            n_canales = self.data.shape[0]
+            nombres = [f"Canal_{i+1}" for i in range(n_canales)]
+            tipos = ["Desconocido"] * n_canales
+        
+        tabla = {}
+
+        for i in range(n_canales):
+            canal = self.data[i]
+            resumen = {
+                "Nombre": nombres[i],
+                "Tipo": tipos[i],
+                "Min": np.min(canal),
+                "Q1": np.percentile(canal, 25),
+                "Mediana": np.median(canal),
+                "Q3": np.percentile(canal, 75),
+                "Max": np.max(canal) }
+            tabla[nombres[i]] = resumen
+
+        datos = pd.DataFrame(tabla)
+        datos.to_csv(archivo_salida, index=False)
+
+        return datos
+
+    def filter(self, l_freq:float, h_freq:float, notch_freq:float = 50.0, order:int = 4) -> "RawSignal":
+        """
+        Aplica un filtro pasabanda (Butterworth) y un filtro notch a la señal fisiológica.
+        El filtro notch permite eliminar una frecuencia fija (por defecto 50 Hz), útil para remover interferencia eléctrica.
+        Luego se aplica un filtro pasabanda Butterworth que permite mantener solo las frecuencias entre l_freq y h_freq.
+
+        Los filtros se aplican a cada canal de la señal de forma independiente.
+
+        Args:
+            l_freq : Frecuencia de corte baja del filtro pasabanda (en Hz).
+            h_freq : Frecuencia de corte alta del filtro pasabanda (en Hz).
+            notch_freq : Frecuencia del filtro notch para eliminar ruido (por defecto 50 Hz).
+            order : Orden del filtro Butterworth (por defecto 4).
+
+        Returns:
+            RawSignal : Nueva instancia de RawSignal con los datos filtrados.
+
+        Raises:
+            ValueError : Si las frecuencias de corte no son válidas. """
+        
+        if l_freq >= h_freq:
+            raise ValueError("La frecuencia de corte mínima debe ser menor que la de corte máxima.")
+        
+        if notch_freq <= 0 or l_freq <= 0 or h_freq <= 0:
+            raise ValueError("Las frecuencias deben ser mayores que cero.")
+
+        datos_filtrados = np.empty_like(self.data)   # Crear un nuevo array para almacenar los datos filtrados. empty_like: Return a new array with the same shape and type as a given array.
+
+        # Diseño del filtro notch
+        Q = 30.0  # Factor de calidad del notch (más alto = más estrecho)
+        b_notch, a_notch = scipy.signal.iirnotch(notch_freq, Q, self.sfreq)
+
+        # Diseño del filtro pasabanda Butterworth
+        b_band, a_band = scipy.signal.butter(order, [l_freq, h_freq], btype='band', fs=self.sfreq)
+
+        for i in range(self.data.shape[0]):                                           # Aplica los filtros a cada canal de la señal
+            canal = self.data[i]                                                      # Extraer un canal
+            canal_filtrado = scipy.signal.filtfilt(b_notch, a_notch, canal)           # Aplica notch
+            canal_filtrado = scipy.signal.filtfilt(b_band, a_band, canal_filtrado)    # Aplica pasabanda
+            datos_filtrados[i] = canal_filtrado                                       # Guarda resultado
+
+        return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=self.info, anotaciones=self.anotaciones, first_samp=self.first_samp)
+    
+    def pick(self, canales=None, slice:list=None) -> "RawSignal":
+        """
+        Retorna un subset de canales seleccionados.
+
+        Args:
+            canales : Lista con los canales para armar el subset. Por defecto es None.
+                Puede ser:
+                    - list[str] : lista de nombres de canales
+                    - list[int] : lista de índices de canales
+            
+            slice : Lista con los extremos para hacer slicing. Por defecto es None.
+            
+        Returns:
+            RawSignal : Nueva instancia con los canales seleccionados.
+
+        Raises: ValueError:
+                    Si el canal especificado no existe.
+                    Si el índice está fuera del rango de canales. """
+        
+
+        if canales is not None and slice is None:
+            indices = canales
+
+        elif canales is None and slice is not None:
+            indices = list(range(slice[0], slice[1]))
+
+        else:
+            raise ValueError ("Error: debe ingresar canales o slice. No se permiten los dos al mismo tiempo")
+        
+        if self.info is not None:
+            subset = self.get_data(picks=indices)
+            info_copia = copy.deepcopy(self.info)
+            canales_originales = info_copia.get("Nombre canales")
+            for canal in canales_originales:
+                if canal not in indices:
+                    info_copia.eliminar_elementos("Nombre canales", elementos= [canal])
+        else:
+            subset = self.get_data(picks=indices)
+            info_copia = None
+
+        return RawSignal(data=subset, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones, first_samp=self.first_samp)
+    
+    
