@@ -260,8 +260,54 @@ class RawSignal:
         self.data = data
         self.sfreq = sfreq
         self.info = info
-        self.anotaciones = anotaciones
         self.first_samp = first_samp
+
+        if anotaciones is not None:
+            self.validar_anotaciones(anotaciones)    # Validación estructurada
+            self.anotaciones = anotaciones
+    
+
+    def validar_anotaciones(self, anotaciones:Anotaciones):
+        """
+        Verifica que las anotaciones estén dentro del rango temporal de la señal.
+
+        Args:
+            anotaciones :  Objeto de la clase 'Anotaciones' que contiene la información de los eventos.
+
+        Raises:
+            TypeError : Si el parámetro 'anotaciones' no es una instancia de la clase 'Anotaciones'.
+            ValueError : Si alguna anotación está fuera del rango temporal de la señal. """
+
+        if not isinstance(anotaciones, Anotaciones):
+            raise TypeError("El parámetro 'anotaciones' debe ser una instancia de la clase 'Anotaciones'.")
+
+        df = anotaciones.get_annotations()                # Método de la clase Anotaciones
+
+        duracion_total = self.data.shape[1] / self.sfreq  # Duración total de la señal
+
+        for i, fila in df.iterrows():                     # Validar que todas las anotaciones estén dentro del rango
+            inicio = fila["Inicio"]
+            duracion = fila["Duracion"]
+            if not (0 <= inicio <= duracion_total):
+                raise ValueError(f"Anotación con inicio en {inicio}s fuera del rango (0 - {duracion_total:.2f}s).")
+            if inicio + duracion > duracion_total:
+                raise ValueError(f"Anotación desde {inicio}s con duración {duracion}s excede el final de la señal.")
+
+        self.anotaciones = anotaciones
+    
+    def set_anotaciones(self, anotaciones: Anotaciones):
+        """
+        Asocia o reemplaza el objeto 'Anotaciones' de la señal, validando que esté en rango.
+
+        Args:
+            anotaciones : Objeto de la clase 'Anotaciones' que contiene la información de los eventos.
+
+        Raises:
+            TypeError : Si el parámetro no es de tipo 'Anotaciones'.
+            ValueError : Si alguna anotación está fuera del rango temporal de la señal.
+        """
+        self.validar_anotaciones(anotaciones)
+        self.anotaciones = anotaciones
         
     def get_data(self, picks=None, start:float|int=0, stop:float|int=0, reject:float=None, times:bool=False):
         """
@@ -305,7 +351,7 @@ class RawSignal:
                 
                 nombres = self.info.get("Nombre canales")       # Aplicamos el médoto de Info para obtener los canales del diccionario
                 try:
-                    canales_idx = [nombres.index(canal) for canal in picks] # Si "canal" esta en los canales pasados desde Info, obtiene el indice y se agrega a canales_idx
+                    canales_idx = [nombres.index(canal) for canal in picks] # Si "canal" esta en los canels pasados desde Info, obtiene el indice y se agrega a canales_idx
                 except ValueError:
                     raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
             else:
@@ -326,7 +372,7 @@ class RawSignal:
             return datos, tiempo_vector
 
         return datos
-
+    
     def drop_channels(self, ch_names:list|np.ndarray) -> "RawSignal":
         """ 
         Elimina uno o más canales a partir de ch_names
@@ -360,7 +406,7 @@ class RawSignal:
         info_copia.eliminar_elementos(key="Nombre canales", elementos=ch_names)
 
         return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones)
-
+        
     def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "RawSignal":
         """
         Obtiene un trozo de RawSignal. Limita los datos dentro de RawSignal
@@ -399,7 +445,7 @@ class RawSignal:
         datos_crop = self.data[:, start_idx:end_idx]                   # Extraer el segmento de la señal
 
         return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=self.anotaciones, first_samp=0) # El segmento recortado empieza en 0 (first_samp)
-    
+
     def describe(self, archivo_salida):
         """
         Genera un DataFrame con estadísticas descriptivas para cada canal de la señal.
@@ -431,7 +477,7 @@ class RawSignal:
         
         if self.info is None: 
             n_canales = self.data.shape[0]
-            nombres = [f"Canal_{i+1}" for i in range(n_canales)]
+            nombres = [f"Canal_{i}" for i in range(n_canales)]
             tipos = ["Desconocido"] * n_canales
         
         tabla = {}
@@ -439,8 +485,8 @@ class RawSignal:
         for i in range(n_canales):
             canal = self.data[i]
             resumen = {
-                "Nombre": nombres[i],
-                "Tipo": tipos[i],
+                "Nombre canal": nombres[i],
+                "Tipo canal": tipos[i],
                 "Min": np.min(canal),
                 "Q1": np.percentile(canal, 25),
                 "Mediana": np.median(canal),
@@ -495,7 +541,7 @@ class RawSignal:
             datos_filtrados[i] = canal_filtrado                                       # Guarda resultado
 
         return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=self.info, anotaciones=self.anotaciones, first_samp=self.first_samp)
-    
+
     def pick(self, canales=None, slice:list=None) -> "RawSignal":
         """
         Retorna un subset de canales seleccionados.
@@ -537,5 +583,52 @@ class RawSignal:
             info_copia = None
 
         return RawSignal(data=subset, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones, first_samp=self.first_samp)
+
+    def plot(self, picks=None, start:float=0.0, duration:float=10.0, show_anotaciones:bool=True):
+        """
+        Grafica un segmento de la señal fisiológica.
+
+        Args:
+            Canal o canales a visualizar. Puede ser:
+                - list[str]: lista de nombres de canales,
+                - list[int]: lista de índices de canales.
+                - Si es None, se grafican todos los canales.
+
+            start : Tiempo inicial (en segundos) desde donde comenzar la visualización (por defecto 0.0).
+            duration : Duración del segmento de señal a mostrar (en segundos, por defecto 10.0).
+
+            show_anotaciones (por defecto True): 
+                            True : Se muestran las anotaciones sobre la señal.
+                            False : No se muestran las anotaciones. """
+        
+        intervalo_inicio = start
+        intervalo_fin = start + duration
+
+        canales, tiempo = self.get_data(picks=picks, start=start, stop=intervalo_fin, times=True)
+        n_canales = canales.shape[0]
+
+        fig, axes = plt.subplots(n_canales, 1, figsize=(10, 2 * n_canales), sharex=True)
+
+        for i in range(n_canales):
+            axes[i].plot(tiempo, canales[i])
+            axes[i].set_ylabel(f"Canal {i}")
+            axes[i].set_xlabel("Tiempo [s]")
+            axes[i].grid(True)
+        
+        if show_anotaciones and self.anotaciones is not None:
+            df = self.anotaciones.get_annotations()
+            for _, fila in df.iterrows():
+                inicio = fila["Inicio"]
+                duracion = fila["Duracion"]
+                fin = inicio + duracion
+                if (inicio < intervalo_fin) and (fin > intervalo_inicio):
+                    evento_inicio = max(inicio, intervalo_inicio)
+                    evento_fin = min(fin, intervalo_fin)
+                    for ax in axes:
+                        ax.axvspan(evento_inicio, evento_fin, color='orange', alpha=0.3)
+
+        plt.xlim(intervalo_inicio, intervalo_fin)
+        plt.tight_layout()
+        plt.show()
     
     
