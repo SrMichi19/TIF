@@ -3,9 +3,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import copy
 import scipy.signal
+from matplotlib.patches import Patch
 
 class Info:
-    """ Clase para almacenar información acerca del registro de datos"""
+    """
+    Clase para almacenar información acerca del registro de datos
+    """
 
     def __init__(self, experimenter:str, subject_info:dict, ch_names:list | str, ch_types:list | str, bads:list | str, description:str, fm:float = 512):
         """
@@ -17,7 +20,8 @@ class Info:
                 ch_types : Tipo de cada canal ('emg', 'eeg', 'ecg') o un único tipo para todos.
                 bads : Lista de canales marcados como "malos ".
                 fm : Frecuencia de muestreo en Hz (por defecto 512).
-                description : Descripción del registro de datos."""
+                description : Descripción del registro de datos.
+        """
         
         if len(ch_names) != len(ch_types):
             raise ValueError ("La cantidad de canales y los tipos de canales deben ser la misma")
@@ -31,12 +35,14 @@ class Info:
                      "Frecuencia muestreo": fm}        
 
     def __contains__(self, clave):
-        """ Permite verificar si una clave esta presente en el objeto
+        """
+        Permite verificar si una clave esta presente en el objeto.
             Args:
-                clave : Nombre de la clave que se quiere verificar
+                clave : Nombre de la clave que se quiere verificar.
             Returns:
-                True: La clave se encuentra en el objeto
-                False: La clave no se encuentra en el objeto"""
+                True: La clave se encuentra en el objeto.
+                False: La clave no se encuentra en el objeto.
+        """
         
         if clave in self.data:
             return True
@@ -44,12 +50,15 @@ class Info:
             return False
         
     def __getitem__(self, clave):
-        """ Permite acceder a elementos como un diccionario
-            Args
-                clave: Nombre de la clave a la que se quiere acceder
-            Returns
+        """
+        Permite acceder a elementos como un diccionario.
+            Args:
+                clave : Nombre de la clave a la que se quiere acceder.
+
+            Returns:
                 Devuelve el valor asociado a la clave ingrsada, o
-                False: Cuando la clave ingresada no existe """
+                False: Cuando la clave ingresada no existe.
+        """
         
         if self.__contains__(clave) == True:
             return self.data[clave]
@@ -57,62 +66,86 @@ class Info:
             return False
         
     def __len__(self) -> int:
-        """ Devuelve la cantidad de elementos almacenados"""
+        """
+        Devuelve la cantidad de elementos almacenados.
+        """
+
         return len(self.data)
     
     def keys(self):
-        """ Devuelve las claves del objeto"""
+        """
+        Devuelve las claves del objeto
+        """
+
         return [clave for clave in self.data]
     
     def get(self, clave):
-        """ Obtiene solo el valor de una clave específica
+        """
+        Obtiene solo el valor de una clave específica.
             Args:
-                clave : Clave de la cual se quiere conocer su valor
+                clave : Clave de la cual se quiere conocer su valor.
+
             Returns:
-                Devuleve el valor de la clave si la misma existe, o false en caso de que no exista"""
+                Devuleve el valor de la clave si la misma existe, o False en caso de que no exista.
+        """
         
         if self.__contains__(clave) == True:
             return self.data[clave]
+        
         else:
             return False
 
     def item(self, elemento):
-        """ Devuelve los elementos como pares clave-valor de una clave en específica
-            Args
-                elemento : Elemento del que se quiere obtener la clave y su valor
+        """
+        Devuelve los elementos como pares clave-valor de una clave en específica.
+            Args:
+                elemento : Elemento del que se quiere obtener la clave y su valor.
             Returns:
-                tuple : Tupla que contiene la clave y el valor del elemento
-                False : Si no exite la clave en el diccionario"""
+                tuple : Tupla que contiene la clave y el valor del elemento.
+                False : Si no exite la clave en el diccionario.
+        """
         
         valor = self.__getitem__(elemento)
         if valor == False:
             return False
+        
         else:
             return (elemento, valor)
         
     def _check_channel(self, channel_name):
-        """ Verifica si un canal se encuentra entre los nombres de los canales
+        """
+        Verifica si un canal se encuentra entre los nombres de los canales.
             Args:
-                channel_name : Canal a verificar si se encuentra en la lista de canales"""
+                channel_name : Canal a verificar si se encuentra en la lista de canales
+            
+            Returns:
+                True : Si el canal existe.
+                False : Si el canal no existe.
+        """
         
         if channel_name in self.data["Nombre canales"]:
             return True
+        
         else:
             return False
         
     def rename_channels(self, nombre_canal, nuevo_nombre):
-        """Permite renombrar canales de forma segura
+        """
+        Permite renombrar canales de forma segura.
             Args:
-                nombre_canal : Nombre del canal que se quiere cambiar
-                nuevo_nombre : Nuevo nombre que va a tener el canal
+                nombre_canal : Nombre del canal que se quiere cambiar.
+                nuevo_nombre : Nuevo nombre que va a tener el canal.
+
             Returs:
-                True : Si se cambio el nombre del canal correctamente
-                False: Si no se pudo modificar el nombre del canal"""
+                True : Si se cambio el nombre del canal correctamente.
+                False: Si no se pudo modificar el nombre del canal.
+        """
         
         if self._check_channel(nombre_canal) == True:
             indice = self.data["Nombre canales"].index(nombre_canal)
             self.data["Nombre canales"][indice] = nuevo_nombre
             return True
+        
         else:
             return False  
     
@@ -126,11 +159,11 @@ class Info:
 
         Raises:
             KeyError: Si la clave no existe en el diccionario.
-            ValueError: Si uno o más elementos a eliminar no están presentes en la lista."""
+            ValueError: Si uno o más elementos a eliminar no están presentes en la lista.
+        """
         
         if self.__contains__(key) == False:
             raise KeyError(f"La clave '{key}' no existe en Info.")
-        
         
         for elemento in elementos:
             if elemento not in self.data[key]:
@@ -138,20 +171,23 @@ class Info:
             self.data[key].remove(elemento)         
 
 class Anotaciones:
-    """ Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
-        Permite la adición, eliminación y modificación de eventos."""
+    """
+    Almacena y gestiona información relacionada con eventos en registros fisiológicos. 
+    Permite la adición, eliminación y modificación de eventos.
+    """
     
     def __init__(self, onset:np.ndarray=None, duration:np.ndarray=None, description=None, file=None):
         """
-        Inicializa la clase con los datos de las anotaciones de forma manual o mediante un archivo csv
+        Inicializa la clase con los datos de las anotaciones de forma manual o mediante un archivo csv.
         
         Args:
-            onset : Inicio del evento en segundos
-            duration : Duración del evento en segundos
-            description : Descripción del evento
+            onset : Inicio del evento en segundos.
+            duration : Duración del evento en segundos.
+            description : Descripción del evento.
             
-            file : Nombre del archivo csv con las atonaciones
-                   Se espera una estructura de columnas [Inicio, Duracion, Descripcion] """
+            file : Nombre del archivo csv con las atonaciones.
+                   Se espera una estructura de columnas [Inicio, Duracion, Descripcion].
+        """
         
         self.onset = onset
         self.duration = duration
@@ -169,13 +205,19 @@ class Anotaciones:
             raise ValueError ("Debe ingresar las anotaciones manualmente o cargarlas a partir de un archivo")
 
     def get_annotations(self):
-        """Devuelve una DataFrame con todas las anotaciones que recibe el constructor"""
+        """
+        Devuelve una DataFrame con todas las anotaciones que recibe el constructor.
+        """
+
         return self.anotaciones
     
     def add(self, anotacion:list|tuple):
-        """Agrega una nueva anotación
+        """
+        Agrega una nueva anotación
             Args:
-                anotacion : Nueva anotación a agregar (se espera la forma [Inicio, Duracion, Descripcion])"""
+                anotacion : Nueva anotación a agregar (se espera la forma [Inicio, Duracion, Descripcion])
+        """
+
         if len(anotacion) != 3:
             return False 
         else:
@@ -183,27 +225,49 @@ class Anotaciones:
             return True 
     
     def remove(self, anotacion_eliminar):
-        """Elimina una anotación específica
+        """
+        Elimina una anotación específica
             Args:
                 anotacion_eliminar : Anotación que se quiere eliminar
             Returns:
                 True : Selimino correctamente la anotación
-                False : No se pudo eliminar la anotación """
+                False : No se pudo eliminar la anotación
+        """
         
         if len(anotacion_eliminar) != 3:
             return False
+        
         else:
             eliminar = (self.anotaciones["Inicio"] == anotacion_eliminar[0]) & (self.anotaciones["Duracion"] == anotacion_eliminar[1]) & (self.anotaciones["Descripcion"] == anotacion_eliminar[2])
             indice = self.anotaciones[eliminar].index
             self.anotaciones = self.anotaciones.drop(indice)
             return True
+    
+    def recorte(self, tmin:float, tmax:float):
+        """
+        Obtiene un df con las anotaciones a aliminar en base a la columna "Inicio".
+        Usa el metodo remove() para eliminar ese las filas de ese df de las anotaciones.
+
+        Args:
+            tmin : Tiempo en segundos. Los "Inicio" menores a este son eliminados.
+            tmax : Tiempo en segundos. Los "Inicio" mayores a este son eliminados.        
+        """
+        anotaciones = self.get_annotations()
+        minimo = anotaciones["Inicio"] < tmin
+        maximo = anotaciones["Inicio"] > tmax
+        eliminar = anotaciones[minimo | maximo]
+
+        for _, row in eliminar.iterrows():
+            self.remove((row["Inicio"], row["Duracion"], row["Descripcion"]))
 
     def find(self, buscar_anotacion):
-        """Busca y devuelve una anotación específica
+        """
+        Busca y devuelve una anotación específica
             Args:
                 buscar_anotacion : Anotación que se quiere buscar entre los datos 
             Returs:
-                Devuelve la anotación o False si la longuitud de la anotación no coincide con la estructura de los datos"""
+                Devuelve la anotación o False si la longuitud de la anotación no coincide con la estructura de los datos
+        """
         
         if len(buscar_anotacion) != 3:
             return False
@@ -212,16 +276,21 @@ class Anotaciones:
             return self.anotaciones[buscar]
 
     def save(self, nombre):
-        """Guarda las anotaciones en un archivo .csv
+        """
+        Guarda las anotaciones en un archivo .csv
             Args:
-                nombre : Nombre con el que se guardara el archivo"""
+                nombre : Nombre con el que se guardara el archivo
+        """
+
         return self.anotaciones.to_csv(f"{nombre}.csv")
     
     def load(self, archivo):
-        """Carga las anotaciones desde un archivo .csv
+        """
+        Carga las anotaciones desde un archivo .csv
             Args:
                 archivo : Nombre del archivo que se quiere cargar
-            Devuelve el dataframe con los datos del archivo csv"""
+            Devuelve el dataframe con los datos del archivo csv.
+        """
         
         anotacion = pd.read_csv(archivo)
         return anotacion
@@ -237,7 +306,7 @@ class RawSignal:
         Inicializa una instancia de la clase RawSignal.
         
         Args:
-            data : Matriz de datos con forma '(n_canales , n_muestras)'.
+            data : Array de datos con forma '(n_canales , n_muestras)'.
             sfreq : Frecuencia de muestreo de la señal en Hz.
             info : Por defecto es None. Información adicional sobre la señal. El diccionario contiene info relevante de la señal
             anotaciones : Objeto de tipo Anotaciones que almacena eventos asociados a la señal y al experimento.
@@ -283,7 +352,7 @@ class RawSignal:
 
         df = anotaciones.get_annotations()                # Método de la clase Anotaciones
 
-        duracion_total = self.data.shape[1] / self.sfreq  # Duración total de la señal
+        duracion_total = (self.data.shape[1] / self.sfreq) + self.first_samp  # Duración total de la señal
 
         for i, fila in df.iterrows():                     # Validar que todas las anotaciones estén dentro del rango
             inicio = fila["Inicio"]
@@ -368,16 +437,59 @@ class RawSignal:
             datos = datos[filtro]
 
         if times is True:
-            tiempo_vector = np.arange(start_idx, stop_idx) / self.sfreq # t = muestra/fm
+            tiempo_vector = (np.arange(start_idx, stop_idx) / self.sfreq) + self.first_samp
             return datos, tiempo_vector
 
         return datos
+        
+    def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "RawSignal":
+        """
+        Obtiene un trozo de RawSignal. Limita los datos dentro de RawSignal
+        para obtener un nuevo objeto RawSignal pero con una cantidad de muestras recortadas.
+        
+        Args:
+            tmin : Tiempo inicial en segundos para iniciar el recorte (por defecto es 0.0).
+            tmax : Tiempo final en segundos para finalizar el recorte (por defecto es None).
+        
+        Returns:
+            RawSignal : Nueva instancia de 'RawSignal' que contiene el segmento temporal recortado.
+        
+        Raises
+            Value Error : Si los tiempos 'tmin' o 'tmax' están fuera del rango de la señal. """
+        
+        n_canales, n_muestras = self.data.shape
+        duracion_total = n_muestras / self.sfreq
+
+        anotaciones_copia = copy.deepcopy(self.anotaciones)
+        anotaciones_copia.recorte(tmin=tmin, tmax=tmax)               # Elimina las anotaciones que superan el tmax del recorte
+
+        # Validaciones
+        if not isinstance(tmin, (int, float)) or tmin < 0:             # Si tmin no es entero, flotante o positivo
+            raise ValueError("'tmin' debe ser un número positivo.")
+        
+        if tmax is not None:
+            if not isinstance(tmax, (int, float)) or tmax <= tmin:     # Si tmax no es un número o es menor a tmin
+                raise ValueError("'tmax' debe ser mayor que 'tmin'.")
+            elif tmax > duracion_total:                                # Si tmax es mayor que la duracion total de la señal
+                raise ValueError(f"'tmax' está fuera del rango de la señal ({duracion_total:.2f} s).")
+
+        if tmin > duracion_total:                                      #Chequeo si tmin es mayor que la duracion total de la señal 
+            raise ValueError(f"'tmin' está fuera del rango de la señal ({duracion_total:.2f} s).")
+
+        start_idx = int(tmin * self.sfreq)                             # Convertir a índices
+        end_idx = int(tmax * self.sfreq) if tmax is not None else n_muestras
+
+        datos_crop = self.data[:, start_idx:end_idx]                   # De todos los canales (:), extraer el segmento de la señal (start_idx:end_idx)
+
+        return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=anotaciones_copia, first_samp=tmin) # El segmento recortado empieza en 0 (first_samp)
     
     def drop_channels(self, ch_names:list|np.ndarray) -> "RawSignal":
         """ 
-        Elimina uno o más canales a partir de ch_names
+        Elimina uno o más canales a partir de ch_names.
+
         Args:
             ch_names : Nombres de canales a eliminar
+
         Returns:
             Objeto RawSignal """
 
@@ -406,45 +518,6 @@ class RawSignal:
         info_copia.eliminar_elementos(key="Nombre canales", elementos=ch_names)
 
         return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones)
-        
-    def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "RawSignal":
-        """
-        Obtiene un trozo de RawSignal. Limita los datos dentro de RawSignal
-        para obtener un nuevo objeto RawSignal pero con una cantidad de muestras recortadas.
-        El parámetro 'first_samp' se configura adecuadamente.
-        
-        Args:
-            tmin : Tiempo inicial en segundos para iniciar el recorte (por defecto es 0.0).
-            tmax : Tiempo final en segundos para finalizar el recorte (por defecto es None).
-        
-        Returns:
-            RawSignal : Nueva instancia de 'RawSignal' que contiene el segmento temporal recortado.
-        
-        Raises
-            Value Error : Si los tiempos 'tmin' o 'tmax' están fuera del rango de la señal. """
-        
-        n_canales, n_muestras = self.data.shape
-        duracion_total = n_muestras / self.sfreq
-
-        #Validaciones
-        if not isinstance(tmin, (int, float)) or tmin < 0:             # Si tmin no es entero, flotante o positivo
-            raise ValueError("'tmin' debe ser un número positivo.")
-        
-        if tmax is not None:
-            if not isinstance(tmax, (int, float)) or tmax <= tmin:     # Si tmax no es un número o es menor a tmin
-                raise ValueError("'tmax' debe ser mayor que 'tmin'.")
-            elif tmax > duracion_total:                                # Si tmax es mayor que la duracion total de la señal
-                raise ValueError(f"'tmax' está fuera del rango de la señal ({duracion_total:.2f} s).")
-
-        if tmin > duracion_total:                                      #Chequeo si tmin es mayor que la duracion total de la señal 
-            raise ValueError(f"'tmin' está fuera del rango de la señal ({duracion_total:.2f} s).")
-
-        start_idx = int(tmin * self.sfreq)                             # Convertir a índices
-        end_idx = int(tmax * self.sfreq) if tmax is not None else n_muestras
-
-        datos_crop = self.data[:, start_idx:end_idx]                   # Extraer el segmento de la señal
-
-        return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=self.anotaciones, first_samp=0) # El segmento recortado empieza en 0 (first_samp)
 
     def describe(self, archivo_salida):
         """
@@ -502,10 +575,8 @@ class RawSignal:
     def filter(self, l_freq:float, h_freq:float, notch_freq:float = 50.0, order:int = 4) -> "RawSignal":
         """
         Aplica un filtro pasabanda (Butterworth) y un filtro notch a la señal fisiológica.
-        El filtro notch permite eliminar una frecuencia fija (por defecto 50 Hz), útil para remover interferencia eléctrica.
-        Luego se aplica un filtro pasabanda Butterworth que permite mantener solo las frecuencias entre l_freq y h_freq.
-
-        Los filtros se aplican a cada canal de la señal de forma independiente.
+        El filtro notch permite eliminar una frecuencia fija (por defecto 50 Hz).
+        Filtro pasabanda Butterworth que permite mantener solo las frecuencias entre l_freq y h_freq.
 
         Args:
             l_freq : Frecuencia de corte baja del filtro pasabanda (en Hz).
@@ -582,9 +653,10 @@ class RawSignal:
             subset = self.get_data(picks=indices)
             info_copia = None
 
-        return RawSignal(data=subset, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones, first_samp=self.first_samp)
+        return RawSignal(data=subset, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones, first_samp=self.first_samp)    
 
-    def plot(self, picks=None, start:float=0.0, duration:float=10.0, show_anotaciones:bool=True):
+    def plot(self, picks=None, start:float=0, duration:float=None, show_anotaciones:bool=True):
+
         """
         Grafica un segmento de la señal fisiológica.
 
@@ -595,40 +667,62 @@ class RawSignal:
                 - Si es None, se grafican todos los canales.
 
             start : Tiempo inicial (en segundos) desde donde comenzar la visualización (por defecto 0.0).
-            duration : Duración del segmento de señal a mostrar (en segundos, por defecto 10.0).
+            duration : Duración del segmento de señal a mostrar en segundos, por defecto None, gráfica toda la señal).
 
             show_anotaciones (por defecto True): 
-                            True : Se muestran las anotaciones sobre la señal.
-                            False : No se muestran las anotaciones. """
+                    True : Se muestran las anotaciones sobre la señal.
+                    False : No se muestran las anotaciones.
+        """  
         
+        if duration is None:
+            n_muestras = self.data.shape[1]
+            duration = n_muestras / self.sfreq
+
+        # El tiempo relativo en el objeto recortado siempre empieza en 0
         intervalo_inicio = start
         intervalo_fin = start + duration
 
-        canales, tiempo = self.get_data(picks=picks, start=start, stop=intervalo_fin, times=True)
+        canales, tiempo = self.get_data(picks=picks, start=intervalo_inicio, stop=intervalo_fin, times=True)
         n_canales = canales.shape[0]
 
-        fig, axes = plt.subplots(n_canales, 1, figsize=(10, 2 * n_canales), sharex=True)
+        fig, axes = plt.subplots(n_canales, 1, figsize=(10, 3 * n_canales), sharex=True)
+        if n_canales == 1:
+            axes = [axes]
 
         for i in range(n_canales):
             axes[i].plot(tiempo, canales[i])
             axes[i].set_ylabel(f"Canal {i}")
             axes[i].set_xlabel("Tiempo [s]")
             axes[i].grid(True)
-        
+
+        # El eje x debe mostrar los tiempos absolutos (first_samp + tiempo relativo)
+        x_min = self.first_samp + intervalo_inicio
+        x_max = self.first_samp + intervalo_fin
+
         if show_anotaciones and self.anotaciones is not None:
             df = self.anotaciones.get_annotations()
-            for _, fila in df.iterrows():
-                inicio = fila["Inicio"]
-                duracion = fila["Duracion"]
-                fin = inicio + duracion
-                if (inicio < intervalo_fin) and (fin > intervalo_inicio):
-                    evento_inicio = max(inicio, intervalo_inicio)
-                    evento_fin = min(fin, intervalo_fin)
-                    for ax in axes:
-                        ax.axvspan(evento_inicio, evento_fin, color='orange', alpha=0.3)
+            eventos = df["Descripcion"].unique()
+            colormap = plt.colormaps.get_cmap('cool')  # 'rainbow', 'Set3', cool, plasma
 
-        plt.xlim(intervalo_inicio, intervalo_fin)
+            # Asignar un color único a cada tipo de evento
+            colores_eventos = {evento: colormap(i / len(eventos)) for i, evento in enumerate(eventos)}
+
+            for evento, color in colores_eventos.items():
+                df_filtrado = df[df["Descripcion"] == evento]
+
+                for _, fila in df_filtrado.iterrows():
+                    inicio = fila["Inicio"]
+                    duracion = fila["Duracion"]
+                    fin = inicio + duracion
+                    if (inicio < x_max) and (fin > x_min):
+                        sombra_inicio = max(inicio, x_min)
+                        sombra_fin = min(fin, x_max)
+                        for ax in axes:
+                            ax.axvspan(sombra_inicio, sombra_fin, color=color, alpha=0.3)
+
+            handles = [Patch(color=color, label=evento) for evento, color in colores_eventos.items()]
+            fig.legend(handles=handles, loc='upper right')
+            
+        plt.xlim(x_min, x_max)
         plt.tight_layout()
         plt.show()
-    
-    
