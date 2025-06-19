@@ -326,6 +326,11 @@ class RawSignal:
         if not (0 <= first_samp < n_muestras):   # Que first_samp sea un entero positivo y menor que el numero de muestras
             raise ValueError("El índice 'first_samp' está fuera del rango de muestras disponibles.")
 
+
+        if info is not None and info["Nombre canales"] is not None:
+            if len(info["Nombre canales"]) != data.shape[0]:
+                raise ValueError(f"La cantidad de canales de la señal ({data.shape[0]}) no coincide con la cantidad ingresada en el objeto Info ({len(info['Nombre canales'])})")
+        
         self.data = data
         self.sfreq = sfreq
         self.info = info
@@ -438,6 +443,7 @@ class RawSignal:
 
         if times is True:
             tiempo_vector = (np.arange(start_idx, stop_idx) / self.sfreq) + self.first_samp
+            
             return datos, tiempo_vector
 
         return datos
@@ -495,7 +501,7 @@ class RawSignal:
 
         # Validaciones
         if self.info is None or self.info.get("Nombre canales") is None:
-            raise ValueError("No se puede eliminar canales sin el objeto Info o los nombres de los canales")
+            raise ValueError("No se puede eliminar canales sin el objeto Info con los nombres de los canales")
         
         canales_actuales = self.info["Nombre canales"]
         datos_actuales = self.data
@@ -550,22 +556,23 @@ class RawSignal:
         
         if self.info is None: 
             n_canales = self.data.shape[0]
-            nombres = [f"Canal_{i}" for i in range(n_canales)]
+            nombres = [f"Canal_{i+1}" for i in range(n_canales)]
             tipos = ["Desconocido"] * n_canales
         
         tabla = {}
 
-        for i in range(n_canales):
-            canal = self.data[i]
+        for i in nombres:
+            indice = nombres.index(i)
+            canal = self.data[indice]
             resumen = {
-                "Nombre canal": nombres[i],
-                "Tipo canal": tipos[i],
+                "Nombre canal": i,
+                "Tipo canal": tipos[indice],
                 "Min": np.min(canal),
                 "Q1": np.percentile(canal, 25),
                 "Mediana": np.median(canal),
                 "Q3": np.percentile(canal, 75),
                 "Max": np.max(canal) }
-            tabla[nombres[i]] = resumen
+            tabla[i] = resumen
 
         datos = pd.DataFrame(tabla)
         datos.to_csv(archivo_salida, index=False)
@@ -645,10 +652,14 @@ class RawSignal:
         if self.info is not None:
             subset = self.get_data(picks=indices)
             info_copia = copy.deepcopy(self.info)
-            canales_originales = info_copia.get("Nombre canales")
+            canales_originales = info_copia.get("Nombre canales")           
+
+            canales_eliminar = []
             for canal in canales_originales:
                 if canal not in indices:
-                    info_copia.eliminar_elementos("Nombre canales", elementos= [canal])
+                    canales_eliminar.append(canal)
+            info_copia.eliminar_elementos(key="Nombre canales", elementos= canales_eliminar)
+        
         else:
             subset = self.get_data(picks=indices)
             info_copia = None
@@ -702,7 +713,7 @@ class RawSignal:
         if show_anotaciones and self.anotaciones is not None:
             df = self.anotaciones.get_annotations()
             eventos = df["Descripcion"].unique()
-            colormap = plt.colormaps.get_cmap('cool')  # 'rainbow', 'Set3', cool, plasma
+            colormap = plt.colormaps.get_cmap('Set1')  # 'rainbow', 'Set3', cool, plasma
 
             # Asignar un color único a cada tipo de evento
             colores_eventos = {evento: colormap(i / len(eventos)) for i, evento in enumerate(eventos)}
@@ -726,3 +737,134 @@ class RawSignal:
         plt.xlim(x_min, x_max)
         plt.tight_layout()
         plt.show()
+    
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            print(f"Acá buscaría el índice que corresponde el canal {key}")
+
+        elif isinstance(key, list):
+            print(f"retornar todos las muestras para los ínidces correspondientes a los canales {key}")
+
+        elif isinstance(key, slice):
+            return self.data[:,key.start:key.stop:key.step]
+        
+        elif isinstance(key, tuple):
+            canales, slicing = key[0], key[1]
+            print(f"Buscar el ínidice o los ínidices dentro de self.data correspondientes a {canales}")
+            print(f"Y retornar la cantidad de muestras equivalente a {slice}")
+
+            indexes=[23,24]
+
+            return self.data[indexes,slicing.start:slicing.stop:slicing.step]
+
+class EEG(RawSignal):
+    """
+    Clase para representar y analizar una señal de Electroencefalografía (EEG).
+
+    Proporciona herramientas básicas para manipular y visualizar señales EEG, aplica filtrado espacial,
+    y realiza análisis espectrales y temporales.
+
+    """
+
+    def __init__(self, data: np.ndarray, sfreq: float, info: Info = None, anotaciones: Anotaciones = None, first_samp: int = 0,
+                referencia: str = "promedio"):
+        super().__init__(data, sfreq, info, anotaciones, first_samp)
+
+        self.referencia = referencia
+
+    def set_reference(self, reference: str, channel: str|int = None):
+        """
+        Cambia la referencia de la señal EEG. Opciones disponibles: 'canal', 'promedio' , 'laplaciano'.".
+
+        """
+
+        self.referencia = reference
+
+        if self.referencia == "canal":
+            self.data_ref = self._aplicar_referencia_a_canal(channel=channel)
+        
+        elif self.referencia == "promedio":
+            self.data_ref = self._aplicar_referencia_promedio()
+
+        elif self.referencia == "laplaciano":
+            pass
+
+        else:
+            raise ValueError("Tipo de referencia no reconocida. Debe usar 'canal', 'promedio' o 'laplaciano'.")
+        
+        return self.data_ref
+
+    def _aplicar_referencia_a_canal(self, channel: str|int):
+        """
+        Cambia la referencia de todos los canales a un canal específico.
+
+        Este método resta, muestra a muestra, la señal de un canal de referencia seleccionado al resto de los canales EEG. 
+
+        """
+
+        canales_disponibles = self.info.get("Nombre canales")
+
+        if channel in canales_disponibles:
+            channel_values = self.get_data([channel])
+            reference = self.data - channel_values
+
+        else:
+            raise ValueError (f"El canal {channel} no existe. Canales disponibles: {canales_disponibles}")
+        
+        return reference
+
+    def _aplicar_referencia_promedio(self):
+        """
+        Aplica una referencia promedio a la señal EEG.
+
+        Este método calcula el promedio de todos los canales en cada muestra de tiempo
+        y lo resta a cada canal individual, generando así una señal referenciada al promedio.
+        """
+
+        channel_values = self.get_data() 
+        mean_reference = np.mean(channel_values, axis=0)
+        reference = self.data - mean_reference
+        return reference
+
+
+    def _aplicar_referencia_laplaciana(self):
+        """
+        Aplica una referencia Laplaciana espacial a la señal EEG.
+
+        Este método calcula la diferencia entre la señal de un canal central y la media de sus canales vecinos.
+
+        """
+
+        pass
+
+    def apply_laplacian_filter(self):
+        """
+        Aplica un filtro espacial Laplaciano para resaltar la actividad local de cada canal.
+
+        """
+
+        pass
+
+    def plot_fourier_spectrum(self):
+        """
+        Calcula y grafica el espectro de Fourier de uno o varios canales de la señal EEG.
+
+        """
+
+        pass
+    
+    def plot_time_frequency(self):
+        """
+        Calcula y grafica una representación tiempo-frecuencia de un canal específico
+
+        """
+
+        pass
+
+    def plot_hilbert_transform(self):
+        """
+        Calcula y grafica la transformada de Hilbert de uno o varios canales, mostrando la envolvente.
+
+        """
+
+        pass
