@@ -740,18 +740,18 @@ class RawSignal:
     
     def __getitem__(self, key):
         if isinstance(key, str):
-            print(f"Acá buscaría el índice que corresponde el canal {key}")
+            print(f"Busca el índice que corresponde el canal {key}")
 
         elif isinstance(key, list):
-            print(f"retornar todos las muestras para los ínidces correspondientes a los canales {key}")
+            print(f"Retorna todas las muestras para los ínidces correspondientes a los canales {key}")
 
         elif isinstance(key, slice):
             return self.data[:,key.start:key.stop:key.step]
         
         elif isinstance(key, tuple):
             canales, slicing = key[0], key[1]
-            print(f"Buscar el ínidice o los ínidices dentro de self.data correspondientes a {canales}")
-            print(f"Y retornar la cantidad de muestras equivalente a {slice}")
+            print(f"Busca el ínidice o los ínidices dentro de self.data correspondientes a {canales}")
+            print(f"Retorna la cantidad de muestras equivalente a {slice}")
 
             indexes=[23,24]
 
