@@ -1,4 +1,9 @@
-*csv
+# Ignorar todos los archivos CSV en todas las carpetas
+*.csv
+
+# Exceptuar los CSV dentro de la carpeta '2. Datos Prueba/'
+!2. Datos Prueba/**/*.csv
+
 *.venv
 __pycache__/
 .vscode/
