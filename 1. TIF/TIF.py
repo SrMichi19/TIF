@@ -1123,3 +1123,168 @@ class EEGSignal(RawSignal):
         
         return EEGSignal(recorte.data, sfreq=self.sfreq, info=recorte.info, anotaciones=recorte.anotaciones, first_samp=recorte.first_samp,
                          referencia=self.referencia, canal=self.canal_ref )
+
+class ECGSignal(RawSignal):
+    def __init__(self, data, sfreq, info=None, anotaciones=None, start_time=None, end_time=None):
+        """
+        Clase especializada para el análisis de señales ECG.
+
+        Parameters:
+        - data (np.ndarray): señal ECG, forma esperada (n_canales, n_muestras)
+        - sfreq (float): frecuencia de muestreo
+        - info (dict): información de los canales
+        - anotaciones (Anotaciones): eventos asociados
+        - start_time (float): tiempo de inicio en segundos
+        - end_time (float): tiempo de fin en segundos
+        """
+        data = data if data.ndim == 2 else data[np.newaxis, :]
+        super().__init__(data, sfreq, info, anotaciones)
+        self.start_idx = int(start_time * sfreq) if start_time else 0
+        self.end_idx = int(end_time * sfreq) if end_time else self.data.shape[1]
+        self.r_peaks = []
+        self.hr = 0.0
+
+    def detectar_r_peaks(self, canal=0, height=None, distance=None):
+        señal = self.data[canal, self.start_idx:self.end_idx]
+        if height is None:
+            height = np.mean(señal)
+        if distance is None:
+            distance = self.sfreq / 2.5
+        peaks, _ = find_peaks(señal, height=height, distance=distance)
+        self.r_peaks = peaks + self.start_idx
+        return self.r_peaks
+
+    def calcular_hr(self):
+        if len(self.r_peaks) == 0:
+            self.detectar_r_peaks()
+        rr_intervals = np.diff(self.r_peaks) / self.sfreq
+        if len(rr_intervals) == 0 or np.mean(rr_intervals) == 0:
+            self.hr = 0.0
+        else:
+            self.hr = 60. / np.mean(rr_intervals)
+        return self.hr
+
+    def tiempo_frecuencia(self, canal=0):
+        señal = self.data[canal, self.start_idx:self.end_idx]
+        f, t, Sxx = spectrogram(señal, fs=self.sfreq)
+        plt.pcolormesh(t, f, Sxx, shading='gouraud')
+        plt.title(f"ECG Tiempo-Frecuencia - Canal {canal}")
+        plt.ylabel('Frecuencia [Hz]')
+        plt.xlabel('Tiempo [s]')
+        plt.colorbar(label="Intensidad")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_r_peaks(self, canal=0):
+        señal = self.data[canal, self.start_idx:self.end_idx]
+        tiempo = np.arange(self.start_idx, self.end_idx) / self.sfreq
+        if len(self.r_peaks) == 0:
+            self.detectar_r_peaks(canal)
+        picos_rel = np.array(self.r_peaks) - self.start_idx
+
+        plt.figure(figsize=(12, 4))
+        plt.plot(tiempo, señal, label="ECG")
+        plt.plot(tiempo[picos_rel], señal[picos_rel], 'ro', label="Picos R")
+        plt.title(f"Señal ECG con Picos R - Canal {canal}")
+        plt.xlabel("Tiempo [s]")
+        plt.ylabel("Amplitud [mV]")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+
+class EMGSignal(RawSignal):
+    def __init__(self, data, sfreq, info, anotaciones, umbral_microv=50, start_time=None, end_time=None):
+        """
+        Clase para representar una señal de electromiografía (EMG).
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Array 2D con la señal EMG. Forma: (n_canales, n_muestras)
+        sfreq : float
+            Frecuencia de muestreo en Hz.
+        umbral_microv : float
+            Umbral de detección de activación en microvoltios (por defecto 50).
+        Start_time : float, optional
+            Tiempo de inicio en segundos para recortar la señal (por defecto None, empieza desde el inicio).
+        end_time : float, optional
+            Tiempo de fin en segundos para recortar la señal (por defecto None, termina al final de la señal).
+        """
+        super().__init__(data, sfreq, info, anotaciones)
+        self.data = data if data.ndim == 2 else data[np.newaxis, :]
+        self.sfreq = sfreq
+        self.umbral = umbral_microv
+        self.start_idx = int(start_time * sfreq) if start_time is not None else 0
+        self.end_idx = int(end_time * sfreq) if end_time is not None else data.shape[1]
+        self.activaciones = self.detectar_activaciones()
+
+    def detectar_activaciones(self):
+        """
+        Detecta índices donde la señal supera el umbral en cada canal.
+        Devuelve una lista de listas (una por canal).
+        """
+        activaciones = []
+        for canal in range(self.data.shape[0]):
+            canal_data = self.data[canal]
+            indices = np.where(canal_data > self.umbral)[0]
+            activaciones.append(indices)
+        return activaciones
+
+    def plot_activaciones(self, canal=0):
+        if canal >= self.data.shape[0]:
+            raise ValueError("Índice de canal fuera de rango.")
+
+        señal_recorte = self.data[canal, self.start_idx:self.end_idx]
+        tiempo = np.arange(self.start_idx, self.end_idx) / self.sfreq
+
+        activaciones_idx = np.array(self.activaciones[canal])
+        dentro_rango = (activaciones_idx >= self.start_idx) & (activaciones_idx < self.end_idx)
+        activaciones_idx_recorte = activaciones_idx[dentro_rango] - self.start_idx
+
+        plt.figure(figsize=(12, 4))
+        plt.plot(tiempo, señal_recorte, label='EMG')
+        plt.plot(
+            tiempo[activaciones_idx_recorte],
+            señal_recorte[activaciones_idx_recorte],
+            'ro', label='Activaciones detectadas'
+        )
+        plt.title(f'Señal EMG - Canal {canal}')
+        plt.xlabel('Tiempo [s]')
+        plt.ylabel('Amplitud [µV]')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def plot_spectrogram(self, canal=0):
+        if canal >= self.data.shape[0]:
+            raise ValueError("Índice de canal fuera de rango.")
+        señal = self.data[canal, self.start_idx:self.end_idx]
+        f, t, Sxx = spectrogram(señal, fs=self.sfreq)
+        plt.figure(figsize=(10, 4))
+        plt.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud')
+        plt.ylabel('Frecuencia [Hz]')
+        plt.xlabel('Tiempo [s]')
+        plt.title(f'Espectrograma - Canal {canal}')
+        plt.colorbar(label='Potencia [dB]')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_hilbert(self, canal=0):
+        if canal >= self.data.shape[0]:
+            raise ValueError("Índice de canal fuera de rango.")
+        señal = self.data[canal, self.start_idx:self.end_idx]
+        tiempo = np.arange(self.start_idx, self.end_idx) / self.sfreq
+        envelope = np.abs(hilbert(señal))
+
+        plt.figure(figsize=(12, 4))
+        plt.plot(tiempo, señal, label='Señal EMG')
+        plt.plot(tiempo, envelope, label='Envolvente (Hilbert)', linestyle='--')
+        plt.title(f'Señal EMG - Canal {canal}')
+        plt.xlabel('Tiempo [s]')
+        plt.ylabel('Amplitud [µV]')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
