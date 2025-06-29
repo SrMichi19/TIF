@@ -1,16 +1,15 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
 import copy
-import scipy.signal
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+import scipy.signal
+from scipy.signal import find_peaks, spectrogram, hilbert, spectrogram
 
 class Info:
-    """
-    Clase para almacenar información acerca del registro de datos
-    """
+    """ Clase para almacenar información acerca del registro de datos"""
 
-    def __init__(self, experimenter:str, subject_info:dict, ch_names:list | str, ch_types:list | str, bads:list | str, description:str, fm:float = 512):
+    def __init__(self, experimenter:str, subject_info:dict, ch_names:list | str, ch_types:list | str, bads:list | str, description:str, fm:float = 512, neighbors:dict = None):
         """
             Genera un objeto Info()
             Args:
@@ -21,10 +20,11 @@ class Info:
                 bads : Lista de canales marcados como "malos ".
                 fm : Frecuencia de muestreo en Hz (por defecto 512).
                 description : Descripción del registro de datos.
+                neighbors : Diccionario con los vecinos de cada canal (solo para señales de EEG).
         """
         
         if len(ch_names) != len(ch_types):
-            raise ValueError ("La cantidad de canales y los tipos de canales deben ser la misma")
+            raise ValueError ("La cantidad de canales y los tipos de canales deben tener la misma longuitud")
         
         self.data = {"Experimentador": experimenter,
                      "Sujeto":subject_info,
@@ -32,7 +32,11 @@ class Info:
                      "Tipo canales": ch_types,
                      "Canales malos": bads,
                      "Descripción": description,
-                     "Frecuencia muestreo": fm}        
+                     "Frecuencia muestreo": fm}  
+
+        if (all(i.lower() == "eeg" for i in ch_types)):
+            if neighbors is not None:
+                self.data["Vecinos"] = neighbors      
 
     def __contains__(self, clave):
         """
@@ -310,7 +314,7 @@ class RawSignal:
             sfreq : Frecuencia de muestreo de la señal en Hz.
             info : Por defecto es None. Información adicional sobre la señal. El diccionario contiene info relevante de la señal
             anotaciones : Objeto de tipo Anotaciones que almacena eventos asociados a la señal y al experimento.
-            first_samp : Índice del primer muestreo a utilizar (default es 0).
+            first_samp : Indica el tiempo de inicio del segmento, pero no recorta los datos. (Por defecto es 0)
             
         Raises:
             ValueError : Si el array 'data' no tiene la forma '(n_canales , n_muestras)'.
@@ -486,7 +490,7 @@ class RawSignal:
 
         datos_crop = self.data[:, start_idx:end_idx]                   # De todos los canales (:), extraer el segmento de la señal (start_idx:end_idx)
 
-        return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=anotaciones_copia, first_samp=tmin) # El segmento recortado empieza en 0 (first_samp)
+        return RawSignal(data=datos_crop, sfreq=self.sfreq, info=self.info, anotaciones=anotaciones_copia, first_samp= self.first_samp + tmin) # El segmento recortado empieza en 0 (first_samp)
     
     def drop_channels(self, ch_names:list|np.ndarray) -> "RawSignal":
         """ 
@@ -522,7 +526,7 @@ class RawSignal:
 
         info_copia.eliminar_elementos(key="Nombre canales", elementos=ch_names)
 
-        return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones)
+        return RawSignal(data=datos_filtrados, sfreq=self.sfreq, info=info_copia, anotaciones=self.anotaciones, first_samp=self.first_samp)
 
     def describe(self, archivo_salida):
         """
@@ -689,7 +693,6 @@ class RawSignal:
             n_muestras = self.data.shape[1]
             duration = n_muestras / self.sfreq
 
-        # El tiempo relativo en el objeto recortado siempre empieza en 0
         intervalo_inicio = start
         intervalo_fin = start + duration
 
@@ -706,7 +709,7 @@ class RawSignal:
             axes[i].set_xlabel("Tiempo [s]")
             axes[i].grid(True)
 
-        # El eje x debe mostrar los tiempos absolutos (first_samp + tiempo relativo)
+        # El eje x debe mostrar los tiempos absolutos (+ first_samp)
         x_min = self.first_samp + intervalo_inicio
         x_max = self.first_samp + intervalo_fin
 
@@ -844,7 +847,7 @@ class EEGSignal(RawSignal):
             self.data_ref = self._aplicar_referencia_promedio()
 
         elif self.referencia == "laplaciano":
-            pass
+            self._aplicar_referencia_laplaciana()
 
         else:
             raise ValueError("Tipo de referencia no reconocida. Debe usar 'canal', 'promedio' o 'laplaciano'.")
@@ -883,32 +886,36 @@ class EEGSignal(RawSignal):
         reference = self.data - mean_reference
         return reference
 
-
     def _aplicar_referencia_laplaciana(self):
-        """
-        Aplica una referencia Laplaciana espacial a la señal EEG.
-
-        Este método calcula la diferencia entre la señal de un canal central y la media de sus canales vecinos.
-
-        """
-        # Corregir despues
-        kernel_size = 3
-        laplacian_kernel = np.zeros((kernel_size, kernel_size))
-        center = kernel_size // 2
-        laplacian_kernel[center, :] = -1
-        laplacian_kernel[:, center] = -1
-        laplacian_kernel[center, center] = 4
-
-        filtered_signal = scipy.signal.convolve2d(self.data, laplacian_kernel, mode='same', boundary='symm') # mode= same: el resultado tiene el mismo tamaño que la matriz original. # boundary = symm: los bordes se tratan con reflexión simétrica, para evitar que el borde se pierda.
-        return filtered_signal
-
-    def apply_laplacian_filter(self):
         """
         Aplica un filtro espacial Laplaciano para resaltar la actividad local de cada canal.
 
+        Return:
+            Señal con el filtro aplicado a todos los canales.
         """
 
-        pass
+        neighbors = self.info.get("Vecinos")
+        canales = self.info.get("Nombre canales")
+
+        if neighbors is None:
+            raise ValueError("Faltan los campos 'Vecinos' en el objeto Info.")
+
+        laplacian_data = np.zeros_like(self.data)
+
+        for i, canal in enumerate(canales):
+            vecinos = neighbors.get(canal, [])
+            
+            if not vecinos:
+                laplacian_data[i, :] = self.data[i, :]               # Si no tiene vecinos, lo deja igual
+                continue
+
+            indices_vecinos = [canales.index(v) for v in vecinos]
+
+            promedio = np.mean(self.data[indices_vecinos, :], axis=0)
+            laplacian_data[i, :] = self.data[i, :] - promedio
+
+        self.data_ref = laplacian_data
+        return self.data_ref
 
     def espectro_frecuencias(self, picks : list, plot : bool = False, fmin : float = None, fmax :float = None):
         """
@@ -940,10 +947,10 @@ class EEGSignal(RawSignal):
                 raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
         
         datos = self.data_ref[canales_idx]
-        datos = np.atleast_2d(datos)                         # asegura que siempre sea 2D
+        datos = np.atleast_2d(datos)                               # asegura que siempre sea 2D
 
         frequencies, spectrum = scipy.signal.welch(datos, fs=self.sfreq, nperseg=1024)
-        spectrum = 10 * np.log10(spectrum)       # dB re: 1 μV²/Hz
+        spectrum = 10 * np.log10(spectrum)                         # dB re: 1 μV²/Hz
 
         fr_max_ejex = frequencies.max()                            # valor maximo de frecuencia
         fr_min_ejex = frequencies.min()
@@ -964,10 +971,10 @@ class EEGSignal(RawSignal):
                 else:
                     raise ValueError (f"La frecuencia máxima '{fmax}' debe ser mayor a la frecuencia minima establecida {fr_min_ejex:.2f} Hz.")
             else:
-                raise ValueError (f"La frecuencia máxima ingresada ´{fmax}´ no es valida")
+                raise ValueError (f"La frecuencia máxima ingresada '{fmax}' no es valida")
 
         if plot:
-            self._plot_fourier_spectrum(frecuencias=frequencies, espectro=spectrum, indices=canales_idx, fmin=fr_min_ejex, fmax=fr_max_ejex)
+            self._plot_spectrum(frecuencias=frequencies, espectro=spectrum, indices=canales_idx, fmin=fr_min_ejex, fmax=fr_max_ejex)
     
         return frequencies, spectrum
     
@@ -1019,7 +1026,7 @@ class EEGSignal(RawSignal):
                 else:
                     raise ValueError(f"La frecuencia mínima '{fmin}' debe estar entre {fr_min_ejex:.2f} y {fr_max_ejex:.2f} Hz.")
             else:
-                raise ValueError (f"La frecuencia mínima ingresada ´{fmin}´ no es valida")
+                raise ValueError (f"La frecuencia mínima ingresada '{fmin}' no es valida")
       
         if fmax:
             if isinstance (fmax, (int, float)):
@@ -1028,14 +1035,14 @@ class EEGSignal(RawSignal):
                 else:
                     raise ValueError (f"La frecuencia máxima '{fmax}' debe ser mayor a la frecuencia minima establecida {fr_min_ejex:.2f} Hz.")
             else:
-                raise ValueError (f"La frecuencia máxima ingresada ´{fmax}´ no es valida")
+                raise ValueError (f"La frecuencia máxima ingresada '{fmax}' no es valida")
 
         if plot:
-            self._plot_fourier_spectrum(frecuencias=freqs, espectro=espectro, indices=canales_idx, fmin=fr_min_ejex, fmax=fr_max_ejex)
+            self._plot_spectrum(frecuencias=freqs, espectro=espectro, indices=canales_idx, fmin=fr_min_ejex, fmax=fr_max_ejex)
     
         return freqs, espectro
     
-    def _plot_fourier_spectrum(self, frecuencias:np.ndarray, espectro:np.ndarray, indices, fmin, fmax):
+    def _plot_spectrum(self, frecuencias:np.ndarray, espectro:np.ndarray, indices, fmin, fmax):
         """
         Genera un gráfico individual del espectro de Fourier para cada canal especificado.
 
@@ -1062,67 +1069,204 @@ class EEGSignal(RawSignal):
             plt.tight_layout()
             plt.show()
     
-    def plot_time_frequency(self):
+    def plot_time_frequency(self, canal: str|int = 0, fmin=None, fmax=None, nperseg=256):
         """
-        Calcula y grafica una representación tiempo-frecuencia de un canal específico
+        Calcula y grafica una representación tiempo-frecuencia para un canal específico de EEG.
 
+        Args:
+            canal : índice o nombre del canal.
+            fmin, fmax : límites del eje de frecuencia (Hz).
+            nperseg : tamaño de ventana para la STFT.
+
+        Raises:
+            ValueError: si el canal especificado no existe.
         """
+        
+        if isinstance(canal, str):
+            if self.info is None or "Nombre canales" not in self.info:
+                raise ValueError("No se puede identificar el canal por nombre: falta el objeto Info.")
+                
+        elif isinstance(canal, int):
+            canal = int(canal)
+        
+        else:
+            raise ValueError("Canal debe ser un nombre (str) o un índice (int).")
+        
+        try:
+            channels = self.info.get("Nombre canales")
+            index = [channels.index(canal)]
+        except ValueError:
+            raise ValueError(f"Canal {canal} no encontrado.")
 
-        pass
+        señal = self.data_ref[index, :].flatten()
 
-    def plot_hilbert_transform(self, picks):
+        f, t, Sxx = spectrogram(señal, fs=self.sfreq, nperseg=nperseg)
+        t_real = t + self.first_samp
+
+        if fmin is not None: 
+            f_mask = f >= fmin
+            f = f[f_mask]
+            Sxx = Sxx[f_mask, :]
+
+        if fmax is not None: 
+            f_mask = f <= fmax
+            f = f[f_mask]
+            Sxx = Sxx[f_mask, :]
+
+        plt.figure(figsize=(10, 5))
+        plt.pcolormesh(t_real, f, Sxx, shading='gouraud', cmap='magma')
+        plt.title(f"EEG Tiempo-Frecuencia - Canal {canal}")
+        plt.ylabel('Frecuencia [Hz]')
+        plt.xlabel('Tiempo [s]')
+        plt.colorbar(label='Potencia')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_hilbert_transform(self, picks=None, tmin:int|float=None, tmax:int|float=None):
         """
         Calcula y grafica la transformada de Hilbert de uno o varios canales, mostrando la envolvente.
 
+        Args:
+            picks : Lista de nombres de canales o None para todos los canales.
+            tmin, tmax : Tiempo de inicio y fin del segmento a graficar (en segundos).
+
+        Returns:
+            hilbert_transform : Matriz compleja con la transformada de Hilbert aplicada.
         """
+        channels = self.info.get("Nombre canales")         # Falta verificar si el objeto Info existe
 
         n_canales, n_muestras = self.data_ref.shape
 
-        if picks is None:                                    # Si picks queda por defecto, seleccionar todos los canales
+        if picks is None:
             canales_idx = np.arange(n_canales)
-        
         else:
-            channels = self.info.get("Nombre canales")
             try:
                 canales_idx = [channels.index(canal) for canal in picks]
             except:
-                raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
-            
-        hilbert_transform = scipy.signal.hilbert(self.data_ref[canales_idx])
+                raise ValueError("Error: uno o más canales no se encuentran en el objeto Info.")
 
+        start = 0
+        end = n_muestras
+
+        if tmin is not None:
+            start = int(tmin * self.sfreq)
+
+        if tmax is not None:
+            end = int(tmax * self.sfreq)
+
+        if start < 0 or end > n_muestras or start >= end:
+            raise ValueError("Rango temporal inválido.")
+
+        data_segment = self.data_ref[canales_idx, start:end]    # Recorto de señal
+
+        hilbert_transform = scipy.signal.hilbert(data_segment)  # Aplico transformada de Hilbert
         envolvente = np.abs(hilbert_transform)
+
+        tiempo = np.arange(start, end) / self.sfreq + self.first_samp           # Vector de tiempo
 
         for i, canal_idx in enumerate(canales_idx):
             plt.figure(figsize=(12, 4))
-            plt.plot(self.data_ref[canal_idx], label='Señal original')
-            plt.plot(envolvente[i], linestyle='--', label='Envolvente (Hilbert)')
+            plt.plot(tiempo, data_segment[i], label='Señal original')                       # Señal original
+            plt.plot(tiempo, envolvente[i], linestyle='--', label='Envolvente (Hilbert)')   # Envolvente
             plt.title(f"Transformada de Hilbert - Canal: {channels[canal_idx]}")
-            plt.xlabel("Tiempo (muestras)")
+            plt.xlabel("Tiempo (s)")
             plt.ylabel("Amplitud (uV)")
             plt.legend()
             plt.grid(True)
             plt.tight_layout()
             plt.show()
-        
+
         return hilbert_transform
     
     def filter(self, l_freq, h_freq, notch_freq = 50, order = 4):
         """
-        Sobreescribimos el metodo filter de RawSignal para que devuelva un objeto EEGSignal"""
+        Sobreescribe el metodo filter de RawSignal para que devuelva un objeto EEGSignal
+
+        Aplica un filtro pasabanda (Butterworth) y un filtro notch a la señal fisiológica.
+        El filtro notch permite eliminar una frecuencia fija (por defecto 50 Hz).
+        Filtro pasabanda Butterworth que permite mantener solo las frecuencias entre l_freq y h_freq.
+
+        Args:
+            l_freq : Frecuencia de corte baja del filtro pasabanda (en Hz).
+            h_freq : Frecuencia de corte alta del filtro pasabanda (en Hz).
+            notch_freq : Frecuencia del filtro notch para eliminar ruido (por defecto 50 Hz).
+            order : Orden del filtro Butterworth (por defecto 4).
+
+        Returns:
+            RawSignal : Nueva instancia de RawSignal con los datos filtrados.
+
+        Raises:
+            ValueError : Si las frecuencias de corte no son válidas.
+        """
 
         filtrada = super().filter(l_freq, h_freq, notch_freq, order)
         
         return EEGSignal(filtrada.data, sfreq=self.sfreq, info=filtrada.info, anotaciones=filtrada.anotaciones, first_samp=filtrada.first_samp,
-                         referencia=self.referencia, canal=self.canal_ref )
+                         referencia=self.referencia, canal=self.canal_ref)
     
     def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "EEGSignal":
         """
-        Sobreescribimos el metodo crop de RawSignal para que devuelva un objeto EEGSignal"""
+        Sobreescribe el metodo crop de RawSignal para que devuelva un objeto EEGSignal
 
-        recorte = super().crop(tmin, tmax)
+        Limita los datos dentro de EEGSignal para obtener un nuevo objeto EEGSignal pero con una cantidad de muestras recortadas.
+        
+        Args:
+            tmin : Tiempo inicial en segundos para iniciar el recorte (por defecto es 0.0).
+            tmax : Tiempo final en segundos para finalizar el recorte (por defecto es None).
+        
+        Return:
+            EEGSignal : Nueva instancia de 'EEGSignal' que contiene el segmento temporal recortado.
+        
+        Raises
+            Value Error : Si los tiempos 'tmin' o 'tmax' están fuera del rango de la señal. 
+        
+        """
+
+        recorte = super().crop(tmin=tmin, tmax=tmax)
         
         return EEGSignal(recorte.data, sfreq=self.sfreq, info=recorte.info, anotaciones=recorte.anotaciones, first_samp=recorte.first_samp,
-                         referencia=self.referencia, canal=self.canal_ref )
+                         referencia=self.referencia, canal=self.canal_ref)
+    
+    def drop_channels(self, ch_names:list|np.ndarray) -> "EEGSignal":
+        """ 
+        Sobreescribe el metodo drop_channels de RawSignal para que devuelva un objeto EEGSignal
+
+        Elimina uno o más canales a partir de ch_names.
+
+        Args:
+            ch_names : Nombres de canales a eliminar
+
+        Return:
+            Objeto EEGSignal """
+        
+        drop = super().drop_channels(ch_names=ch_names)
+        return EEGSignal(drop.data, sfreq=self.sfreq, info=drop.info, anotaciones=drop.anotaciones, first_samp=drop.first_samp,
+                         referencia=self.referencia, canal=self.canal_ref)
+    
+    def pick(self, canales=None, slice:list=None) -> "EEGSignal":
+        """
+        Sobreescribe el metodo pick de RawSignal para que devuelva un objeto EEGSignal
+
+        Retorna un subset de canales seleccionados.
+
+        Args:
+            canales : Lista con los canales para armar el subset. Por defecto es None.
+                Puede ser:
+                    - list[str] : lista de nombres de canales
+                    - list[int] : lista de índices de canales
+            
+            slice : Lista con los extremos para hacer slicing. Por defecto es None.
+            
+        Returns:
+            EEGSignal : Nueva instancia con los canales seleccionados.
+
+        Raises: ValueError:
+                    Si el canal especificado no existe.
+                    Si el índice está fuera del rango de canales. """
+        
+        picks = super().pick(canales=canales, slice=slice)
+        return EEGSignal(picks.data, sfreq=self.sfreq, info=picks.info, anotaciones=picks.anotaciones, first_samp=picks.first_samp,
+                         referencia=self.referencia, canal=self.canal_ref)
 
 class ECGSignal(RawSignal):
     def __init__(self, data, sfreq, info=None, anotaciones=None, start_time=None, end_time=None):
