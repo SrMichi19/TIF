@@ -1302,14 +1302,14 @@ class EEGSignal(RawSignal):
                          referencia=self.referencia, canal=self.canal_ref)
     
 class EMGSignal(RawSignal):
-    def __init__(self, data:np.ndarray, sfreq:float, info:Info=None, anotaciones:Anotaciones=None, first_samp: int = 0, umbral_microv=50):
+    def __init__(self, data:np.ndarray, sfreq:float, info:Info=None, anotaciones:Anotaciones=None, first_samp: int = 0, umbral_microv=5):
         """
         Clase para representar una señal de electromiografía (EMG).
 
         Args:
             data : Array 2D con la señal EMG. Forma: (n_canales, n_muestras)
             sfreq : Frecuencia de muestreo en Hz.
-            umbral_microv : Umbral de detección de activación en microvoltios (por defecto 50).
+            umbral_microv : Umbral de detección de activación en microvoltios (por defecto 5).
 
         """
 
@@ -1343,7 +1343,7 @@ class EMGSignal(RawSignal):
 
         return activaciones
 
-    def plot_activaciones(self, canal=None, start_time=None, end_time=None):
+    def plot_activaciones(self, canal=None, start_time=None, end_time=None, umbral=None):
         """
         Grafica la señal EMG de un canal específico junto con las activaciones detectadas.
 
@@ -1352,8 +1352,9 @@ class EMGSignal(RawSignal):
 
         Args:
             canal : Índice del canal a graficar. Por defecto es 0.
-            start_time : Tiempo (en segundos) de inicio del gráfico
-            end_time : Tiempo (en segundos) final del gráfico
+            start_time : Tiempo (en segundos) de inicio del gráfico.
+            end_time : Tiempo (en segundos) final del gráfico.
+            umbral_microv : Umbral de detección de activación en microvoltios.
 
         Raises:
             ValueError: Si el índice de canal proporcionado está fuera del rango de canales disponibles.
@@ -1363,9 +1364,6 @@ class EMGSignal(RawSignal):
         if canal is None:
             canal_idx = 0
 
-        elif isinstance(canal, int):
-            canal_idx = canal
-
         elif isinstance(canal, str):
             if self.info is None or "Nombre canales" not in self.info:
                 raise ValueError("No se puede identificar el canal por nombre: falta el objeto Info.")
@@ -1373,11 +1371,13 @@ class EMGSignal(RawSignal):
                 canal_idx = self.info["Nombre canales"].index(canal)
             except ValueError:
                 raise ValueError(f"Canal '{canal}' no encontrado en Info.")
+            canal_idx = self.info["Nombre canales"].index(canal)
+
         else:
-            raise ValueError("El parámetro 'canal' debe ser int, str o None.")
-        
-        if canal_idx < 0 or canal_idx >= self.data.shape[0]:
-            raise ValueError("Índice de canal fuera de rango.")
+            canal_idx = canal
+            if canal_idx > self.data.shape[0]:
+                raise ValueError(f" El canal de indice '{canal}' no se encuentra en la señal")
+
 
         start_idx = int(start_time * self.sfreq) if start_time is not None else 0
         end_idx = int(end_time * self.sfreq) if end_time is not None else self.data.shape[1]
@@ -1385,13 +1385,14 @@ class EMGSignal(RawSignal):
         señal_recorte = self.data[canal_idx, start_idx:end_idx]
         tiempo = np.arange(start_idx, end_idx) / self.sfreq
 
-        activaciones_idx = np.array(self.activaciones[canal_idx])
-        dentro_rango = (activaciones_idx >= start_idx) & (activaciones_idx < end_idx)
-        activaciones_idx_recorte = activaciones_idx[dentro_rango]
+        umbral = umbral if umbral is not None else self.umbral
+
+        activaciones_idx = np.where(señal_recorte > umbral)[0]
 
         plt.figure(figsize=(12, 4))
         plt.plot(tiempo, señal_recorte, label='EMG')
-        plt.plot(tiempo[activaciones_idx_recorte], señal_recorte[activaciones_idx_recorte],'ro', label='Activaciones detectadas')
+        if len(activaciones_idx) > 0:
+            plt.plot(tiempo[activaciones_idx], señal_recorte[activaciones_idx], 'ro', label='Activaciones detectadas')
         plt.title(f'Señal EMG - Canal {canal}')
         plt.xlabel('Tiempo [s]')
         plt.ylabel('Amplitud [µV]')
