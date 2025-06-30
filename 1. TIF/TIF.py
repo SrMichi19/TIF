@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import scipy.signal
-from scipy.signal import find_peaks, spectrogram, hilbert, spectrogram
+from scipy.signal import find_peaks, spectrogram, hilbert
 
 class Info:
     """ Clase para almacenar información acerca del registro de datos"""
@@ -327,9 +327,8 @@ class RawSignal:
             raise ValueError("El array 'data' debe tener dos dimensiones: (n_canales, n_muestras).")
 
         n_muestras = data.shape[1]               # Número de muestras es la segunda dimensión
-        if not (0 <= first_samp < n_muestras):   # Que first_samp sea un entero positivo y menor que el numero de muestras
-            raise ValueError("El índice 'first_samp' está fuera del rango de muestras disponibles.")
-
+        if not (0 <= first_samp < n_muestras / self.sfreq):   # Que first_samp sea un entero positivo y menor que la duración total de la señal
+            raise ValueError("El índice 'first_samp' está fuera del rango de duración total de la señal")
 
         if info is not None and info["Nombre canales"] is not None:
             if len(info["Nombre canales"]) != data.shape[0]:
@@ -826,7 +825,7 @@ class EEGSignal(RawSignal):
 
             anotaciones : Objeto que almacena las anotaciones temporales asociadas a eventos.
 
-            first_samp : Índice del primer punto de la señal. Por defecto es 0.
+            first_samp : first_samp : Indica el tiempo de inicio del segmento, pero no recorta los datos. (Por defecto es 0)
 
             referencia : Tipo de referencia a aplicar a la señal EEG. Puede ser 'canal', 'promedio' o 'laplaciano'.
                          Por defecto se utiliza 'promedio'.
