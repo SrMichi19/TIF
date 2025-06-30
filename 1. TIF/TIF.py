@@ -1623,70 +1623,303 @@ class EMGSignal(RawSignal):
                          umbral_microv=self.umbral)
 
 class ECGSignal(RawSignal):
-    def __init__(self, data, sfreq, info=None, anotaciones=None, start_time=None, end_time=None):
+    def __init__(self, data, sfreq, info=None, anotaciones=None, first_samp:int = 0):
         """
         Clase especializada para el análisis de señales ECG.
 
-        Parameters:
-        - data (np.ndarray): señal ECG, forma esperada (n_canales, n_muestras)
-        - sfreq (float): frecuencia de muestreo
-        - info (dict): información de los canales
-        - anotaciones (Anotaciones): eventos asociados
-        - start_time (float): tiempo de inicio en segundos
-        - end_time (float): tiempo de fin en segundos
+        Args:
+            - data (np.ndarray): Señal ECG, forma esperada (n_canales, n_muestras)
+            - sfreq : frecuencia de muestreo
+            - info : Objeto Info con la información de la señal.
+            - anotaciones Objeto Anotaciones con los eventos asociados.
+            - first_samp : Indica el tiempo de inicio del segmento, pero no recorta los datos. (Por defecto es 0)
+
         """
+
         data = data if data.ndim == 2 else data[np.newaxis, :]
+
         super().__init__(data, sfreq, info, anotaciones)
-        self.start_idx = int(start_time * sfreq) if start_time else 0
-        self.end_idx = int(end_time * sfreq) if end_time else self.data.shape[1]
+
         self.r_peaks = []
         self.hr = 0.0
 
-    def detectar_r_peaks(self, canal=0, height=None, distance=None):
-        señal = self.data[canal, self.start_idx:self.end_idx]
-        if height is None:
-            height = np.mean(señal)
-        if distance is None:
-            distance = self.sfreq / 2.5
-        peaks, _ = find_peaks(señal, height=height, distance=distance)
-        self.r_peaks = peaks + self.start_idx
-        return self.r_peaks
+    def detectar_r_peaks(self, canales:list=None, start:float=None, end:float=None, height:float=None, distance:float=None):
+        """
+        Detecta los picos R en uno o más canales de una señal ECG.
 
+        Args:
+            canales : list[str] Lista con los nombres de los canales a analizar. Si es None, se usan todos.
+            start : Tiempo de inicio en segundos para el análisis.
+            end : Tiempo de fin en segundos para el análisis.
+            height : Umbral mínimo de altura para considerar un pico R.
+            distance : Distancia mínima entre picos R, en número de muestras.
+
+        Returns:
+            list[np.ndarray]: Lista con los índices de los picos R para cada canal.
+        """
+
+        if self.info is None or "Nombre canales" not in self.info:
+            raise ValueError("El objeto Info con los nombres de los canales es requerido.")
+        
+        nombres_canales = self.info.get("Nombre canales")
+        n_canales, n_muestras = self.data.shape
+
+        if canales is None:
+            canales = nombres_canales
+        
+        if not all(c in nombres_canales for c in canales):
+            raise ValueError("Uno o más nombres de canales no existen en el objeto Info.")
+        
+        canales_idx = [nombres_canales.index(c) for c in canales]
+
+        start_idx = int(start * self.sfreq) if start is not None else 0
+        end_idx = int(end * self.sfreq) if end is not None else n_muestras
+
+        r_peaks_list = []
+
+        for idx in canales_idx:
+            señal = self.data[idx, start_idx:end_idx]
+
+            _height = np.mean(señal) if height is None else height
+            _distance = self.sfreq / 2.5 if distance is None else distance
+
+            peaks, _ = find_peaks(señal, height=_height, distance=_distance)
+            r_peaks_list.append(peaks + start_idx)
+
+        self.r_peaks = r_peaks_list
+        return r_peaks_list 
+    
     def calcular_hr(self):
-        if len(self.r_peaks) == 0:
-            self.detectar_r_peaks()
-        rr_intervals = np.diff(self.r_peaks) / self.sfreq
-        if len(rr_intervals) == 0 or np.mean(rr_intervals) == 0:
-            self.hr = 0.0
-        else:
-            self.hr = 60. / np.mean(rr_intervals)
-        return self.hr
+        """
+        Calcula la frecuencia cardíaca (heart rate) a partir de los picos R detectados.
 
-    def tiempo_frecuencia(self, canal=0):
-        señal = self.data[canal, self.start_idx:self.end_idx]
-        f, t, Sxx = spectrogram(señal, fs=self.sfreq)
-        plt.pcolormesh(t, f, Sxx, shading='gouraud')
-        plt.title(f"ECG Tiempo-Frecuencia - Canal {canal}")
+        Returns:
+            list[float] : Devuelve una lista con las frecuancias cardiacas.
+        """
+        if not self.r_peaks:
+            self.r_peaks = self.detectar_r_peaks()
+        
+        picos = self.r_peaks
+
+        if isinstance(picos, np.ndarray):
+            rr_intervals = np.diff(picos) / self.sfreq
+            self.hr = 60. / np.mean(rr_intervals)
+            return self.hr
+        
+        elif isinstance(picos, list):
+            frec_card = []
+            for pico in picos:
+                rr_intervals = np.diff(pico) / self.sfreq
+                hr = 60. / np.mean(rr_intervals)
+                frec_card.append(hr)
+            self.hr = frec_card
+            return frec_card
+
+    def plot_time_frequency(self, canal: str|int = 0, fmin=None, fmax=None, start_time=None, end_time=None, nperseg=256, absoluto=False):
+        """
+        Calcula y grafica una representación tiempo-frecuencia para un canal específico de EEG.
+
+        Args:
+            canal : índice o nombre del canal.
+            fmin, fmax : límites del eje de frecuencia (Hz).
+            start_time : Tiempo (en segundos) de inicio del gráfico
+            end_time : Tiempo (en segundos) final del gráfico
+            nperseg : tamaño de ventana para la STFT.
+            absoluto : Ajusta el eje temporal de grafico (recomendado cuando se intenta usar el metodo en una señal previamente recortada)
+
+        """
+        
+        if canal is None:
+            canal_idx = 0
+
+        elif isinstance(canal, int):
+            canal_idx = canal
+
+        elif isinstance(canal, str):
+            if self.info is None or "Nombre canales" not in self.info:
+                raise ValueError("No se puede identificar el canal por nombre: falta el objeto Info.")
+            try:
+                canal_idx = self.info["Nombre canales"].index(canal)
+            except ValueError:
+                raise ValueError(f"Canal '{canal}' no encontrado en Info.")
+        else:
+            raise ValueError("El parámetro 'canal' debe ser int, str o None.")
+        
+        if canal_idx < 0 or canal_idx >= self.data.shape[0]:
+            raise ValueError("Índice de canal fuera de rango.")
+        
+        if absoluto:   # Restar el desplazamiento del segmento (usar solo para cuando tengo una señal ya recortada)
+            if start_time is not None:
+                start_time = start_time - self.first_samp
+            if end_time is not None:
+                end_time = end_time - self.first_samp
+        
+        start_idx = int(start_time * self.sfreq) if start_time is not None else 0
+        end_idx = int(end_time * self.sfreq) if end_time is not None else self.data.shape[1]
+        
+        señal = self.data[canal_idx, start_idx:end_idx].flatten()
+
+        f, t, Sxx = spectrogram(señal, fs=self.sfreq, nperseg=nperseg)
+        t_real = t + self.first_samp + (start_time if start_time is not None else 0)
+
+        if fmin is not None: 
+            f_mask = f >= fmin
+            f = f[f_mask]
+            Sxx = Sxx[f_mask, :]
+
+        if fmax is not None: 
+            f_mask = f <= fmax
+            f = f[f_mask]
+            Sxx = Sxx[f_mask, :]
+
+        plt.figure(figsize=(10, 5))
+        plt.pcolormesh(t_real, f, 10 * np.log10(Sxx), shading='gouraud', cmap='magma')
+        plt.title(f"EEG Tiempo-Frecuencia - Canal {canal}")
         plt.ylabel('Frecuencia [Hz]')
         plt.xlabel('Tiempo [s]')
-        plt.colorbar(label="Intensidad")
+        plt.colorbar(label='Potencia')
         plt.tight_layout()
         plt.show()
 
-    def plot_r_peaks(self, canal=0):
-        señal = self.data[canal, self.start_idx:self.end_idx]
-        tiempo = np.arange(self.start_idx, self.end_idx) / self.sfreq
+    def plot_r_peaks(self, picks:list=None, start:float=None, end:float=None):
+
+        """
+        Grafica la señal de ECG con los picos R detectados superpuestos.
+
+        Args:
+            picks : lista con nombres de los canales a graficar (si None, grafica todos).
+            start : tiempo inicial en segundos para la ventana a graficar.
+            end   : tiempo final en segundos para la ventana a graficar.
+        """
+
+        n_canales, n_muestras = self.data.shape
+
+        if picks is None:                                    # Si picks queda por defecto, seleccionar todos los canales
+            channels = self.info.get("Nombre canales")
+            canales_idx = np.arange(n_canales)
+
+        else:
+            channels = self.info.get("Nombre canales")
+            try:
+                canales_idx = [channels.index(canal) for canal in picks]
+            except:
+                raise ValueError(f"Error: uno o más canales no se encuentran en los canales Ingresados desde el objeto Info")
+        
+        start_idx = int(start * self.sfreq) if start is not None else 0
+        end_idx = int(end * self.sfreq) if end is not None else n_muestras
+
+        señal = self.data[canales_idx, start_idx:end_idx]
+
+        tiempo = np.arange(start_idx, end_idx) / self.sfreq
+
         if len(self.r_peaks) == 0:
-            self.detectar_r_peaks(canal)
-        picos_rel = np.array(self.r_peaks) - self.start_idx
+            self.detectar_r_peaks()
+        
+        r_peaks = self.r_peaks
+        if isinstance(r_peaks, np.ndarray):
+            r_peaks = [r_peaks]
+        
+        for i, idx in enumerate(canales_idx):
 
-        plt.figure(figsize=(12, 4))
-        plt.plot(tiempo, señal, label="ECG")
-        plt.plot(tiempo[picos_rel], señal[picos_rel], 'ro', label="Picos R")
-        plt.title(f"Señal ECG con Picos R - Canal {canal}")
-        plt.xlabel("Tiempo [s]")
-        plt.ylabel("Amplitud [mV]")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
+            señal = self.data[idx, start_idx:end_idx]
+            picos_rel = np.array(r_peaks[i]) - start_idx
+
+            picos_rel = picos_rel[(picos_rel >= 0) & (picos_rel < señal.shape[0])]
+
+            plt.figure(figsize=(12, 4))
+            plt.plot(tiempo, señal, label=f"ECG canal {channels[idx]}")
+            plt.plot(tiempo[picos_rel], señal[picos_rel], 'ro', label="Picos R")
+            plt.title(f"Señal ECG con Picos R - Canal {channels[idx]}")
+            plt.xlabel("Tiempo [s]")
+            plt.ylabel("Amplitud [mV]")
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
+    
+    def filter(self, l_freq, h_freq, notch_freq = 50, order = 4)-> "ECGSignal":
+        """
+        Sobreescribe el metodo filter de RawSignal para que devuelva un objeto ECGSignal
+
+        Aplica un filtro pasabanda (Butterworth) y un filtro notch a la señal fisiológica.
+        El filtro notch permite eliminar una frecuencia fija (por defecto 50 Hz).
+        Filtro pasabanda Butterworth que permite mantener solo las frecuencias entre l_freq y h_freq.
+
+        Args:
+            l_freq : Frecuencia de corte baja del filtro pasabanda (en Hz).
+            h_freq : Frecuencia de corte alta del filtro pasabanda (en Hz).
+            notch_freq : Frecuencia del filtro notch para eliminar ruido (por defecto 50 Hz).
+            order : Orden del filtro Butterworth (por defecto 4).
+
+        Returns:
+            ECGSignal : Nueva instancia de RawSignal con los datos filtrados.
+
+        Raises:
+            ValueError : Si las frecuencias de corte no son válidas.
+        """
+
+        filtrada = super().filter(l_freq, h_freq, notch_freq, order)
+        
+        return ECGSignal(data=filtrada.data, sfreq=self.sfreq, info=filtrada.info, anotaciones=filtrada.anotaciones, first_samp=filtrada.first_samp)
+    
+    def crop(self, tmin:int|float=0.0, tmax:int|float=None) -> "ECGSignal":
+        """
+        Sobreescribe el metodo crop de RawSignal para que devuelva un objeto ECGSignal
+
+        Limita los datos dentro de ECGSignal para obtener un nuevo objeto ECGSignal pero con una cantidad de muestras recortadas.
+        
+        Args:
+            tmin : Tiempo inicial en segundos para iniciar el recorte (por defecto es 0.0).
+            tmax : Tiempo final en segundos para finalizar el recorte (por defecto es None).
+        
+        Return:
+            EMGSignal : Nueva instancia de 'EEGSignal' que contiene el segmento temporal recortado.
+        
+        Raises
+            Value Error : Si los tiempos 'tmin' o 'tmax' están fuera del rango de la señal. 
+        
+        """
+
+        recorte = super().crop(tmin=tmin, tmax=tmax)
+        
+        return ECGSignal(recorte.data, sfreq=self.sfreq, info=recorte.info, anotaciones=recorte.anotaciones, first_samp=recorte.first_samp)
+    
+    def drop_channels(self, ch_names:list|np.ndarray) -> "ECGSignal":
+        """ 
+        Sobreescribe el metodo drop_channels de RawSignal para que devuelva un objeto ECGSignal
+
+        Elimina uno o más canales a partir de ch_names.
+
+        Args:
+            ch_names : Nombres de canales a eliminar
+
+        Return:
+            Objeto ECGSignal """
+        
+        drop = super().drop_channels(ch_names=ch_names)
+        return ECGSignal(drop.data, sfreq=self.sfreq, info=drop.info, anotaciones=drop.anotaciones, first_samp=drop.first_samp)
+    
+    def pick(self, canales=None, slice:list=None) -> "ECGSignal":
+        """
+        Sobreescribe el metodo pick de RawSignal para que devuelva un objeto ECGSignal
+
+        Retorna un subset de canales seleccionados.
+
+        Args:
+            canales : Lista con los canales para armar el subset. Por defecto es None.
+                Puede ser:
+                    - list[str] : lista de nombres de canales
+                    - list[int] : lista de índices de canales
+            
+            slice : Lista con los extremos para hacer slicing. Por defecto es None.
+            
+        Returns:
+            EMGSignal : Nueva instancia con los canales seleccionados.
+
+        Raises: ValueError:
+                    Si el canal especificado no existe.
+                    Si el índice está fuera del rango de canales. """
+        
+        picks = super().pick(canales=canales, slice=slice)
+        return ECGSignal(picks.data, sfreq=self.sfreq, info=picks.info, anotaciones=picks.anotaciones, first_samp=picks.first_samp,
+                         umbral_microv=self.umbral)
