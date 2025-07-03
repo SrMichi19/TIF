@@ -327,7 +327,7 @@ class RawSignal:
             raise ValueError("El array 'data' debe tener dos dimensiones: (n_canales, n_muestras).")
 
         n_muestras = data.shape[1]               # Número de muestras es la segunda dimensión
-        if not (0 <= first_samp < n_muestras / self.sfreq):   # Que first_samp sea un entero positivo y menor que la duración total de la señal
+        if ((first_samp < 0) or (first_samp > n_muestras / sfreq)):   # Que first_samp sea un entero positivo y menor que la duración total de la señal
             raise ValueError("El índice 'first_samp' está fuera del rango de duración total de la señal")
 
         if info is not None and info["Nombre canales"] is not None:
